@@ -71,6 +71,20 @@ async function checkTableExists(tableName) {
   }
 }
 
+// Verificar si una columna existe en una tabla
+async function checkColumnExists(tableName, columnName) {
+  try {
+    const [rows] = await conn.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+      [config.db.database, tableName, columnName]
+    );
+    return rows.length > 0;
+  } catch (error) {
+    return false;
+  }
+}
+
 // Eliminar la base de datos si existe
 async function destroyDatabase() {
   try {
@@ -107,6 +121,21 @@ async function createUsersTable() {
     const exists = await checkTableExists('users');
     if (exists) {
       console.log('ℹ️ Tabla users ya existe');
+      
+      // Verificar y añadir campos de compañía si no existen
+      const companyIdExists = await checkColumnExists('users', 'company_id');
+      if (!companyIdExists) {
+        await conn.query(`ALTER TABLE users ADD COLUMN company_id BIGINT UNSIGNED`);
+        await conn.query(`CREATE INDEX idx_users_company ON users(company_id)`);
+        console.log('✅ Campo company_id añadido a la tabla users');
+      }
+      
+      const positionExists = await checkColumnExists('users', 'position');
+      if (!positionExists) {
+        await conn.query(`ALTER TABLE users ADD COLUMN position VARCHAR(100)`);
+        console.log('✅ Campo position añadido a la tabla users');
+      }
+      
       return;
     }
     
@@ -117,9 +146,12 @@ async function createUsersTable() {
         email VARCHAR(100) UNIQUE NOT NULL,
         password VARCHAR(100) NOT NULL,
         role ENUM('admin', 'manager', 'user') DEFAULT 'user',
+        company_id BIGINT UNSIGNED,
+        position VARCHAR(100),
         active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_users_company (company_id)
       )
     `);
     console.log('✅ Tabla users creada');
@@ -162,6 +194,14 @@ async function createProjectsTable() {
       )
     `);
     console.log('✅ Tabla construction_projects creada');
+    
+    // Añadir relación de llave foránea para company_id en users
+    await conn.query(`
+      ALTER TABLE users 
+      ADD CONSTRAINT fk_user_company 
+      FOREIGN KEY (company_id) REFERENCES construction_projects(id)
+    `);
+    console.log('✅ Relación entre users y construction_projects establecida');
   } catch (error) {
     console.error('❌ Error al crear tabla construction_projects:', error);
     throw error;
