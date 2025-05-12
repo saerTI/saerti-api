@@ -336,7 +336,7 @@ async function createAdminUser() {
     // Verificar si ya existe el usuario admin
     const [existingUsers] = await conn.query(
       'SELECT COUNT(*) as count FROM users WHERE email = ?', 
-      ['admin@constructflow.com']
+      ['admin@saer.cl']
     );
     
     if (existingUsers[0].count > 0) {
@@ -345,15 +345,15 @@ async function createAdminUser() {
     }
     
     // Crear usuario administrador
-    const hashedPassword = await bcrypt.hash('admin123', 10);
+    const hashedPassword = await bcrypt.hash('admin', 10);
     await conn.query(`
       INSERT INTO users (name, email, password, role) 
       VALUES (?, ?, ?, ?)
-    `, ['Administrador', 'admin@constructflow.com', hashedPassword, 'admin']);
+    `, ['Administrador', 'admin@saer.cl', hashedPassword, 'admin']);
     
     console.log('✅ Usuario administrador creado:');
-    console.log('   Email: admin@constructflow.com');
-    console.log('   Contraseña: admin123');
+    console.log('   Email: admin@saer.cl');
+    console.log('   Contraseña: admin');
   } catch (error) {
     console.error('❌ Error al crear usuario administrador:', error);
     throw error;
