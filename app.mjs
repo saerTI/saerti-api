@@ -9,6 +9,8 @@ import projectRoutes from './src/routes/projectRoutes.mjs';
 import milestoneRoutes from './src/routes/milestoneRoutes.mjs';
 import cashFlowRoutes from './src/routes/cashFlowRoutes.mjs';
 import reportRoutes from './src/routes/reportRoutes.mjs';
+import previsionalRoutes from './src/routes/CC/previsionalRoutes.mjs';
+import remuneracionRoutes from './src/routes/CC/remuneracionRoutes.mjs';
 
 // Inicializar aplicación de Express
 const app = express();
@@ -43,6 +45,8 @@ app.use(projectRoutes);
 app.use(milestoneRoutes);
 app.use(cashFlowRoutes);
 app.use(reportRoutes);
+app.use(previsionalRoutes);
+app.use(remuneracionRoutes);
 
 // Ruta de prueba para verificar que la API está funcionando
 app.get('/api/health', (req, res) => {
