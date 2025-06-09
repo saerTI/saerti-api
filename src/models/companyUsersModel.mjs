@@ -71,7 +71,7 @@ export default {
    * @param {Object} filters - Filtros adicionales
    * @returns {Promise<Object>} - Lista de usuarios y metadatos de paginación
    */
-  async listByCompany(companyId, page = 1, limit = 10, filters = {}) {
+  async listByCompany(companyId, page = 1, limit = 20, filters = {}) {
     const offset = (page - 1) * limit;
     const whereConditions = ['u.company_id = ?'];
     const queryParams = [companyId];

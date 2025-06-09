@@ -235,7 +235,7 @@ export default {
    */
   async listUsers(req, res, next) {
     try {
-      const { page = 1, limit = 10 } = req.query;
+      const { page = 1, limit = 20 } = req.query;
       
       const users = await userModel.listAll(page, limit);
       

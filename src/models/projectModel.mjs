@@ -193,7 +193,7 @@ export default {
    * @param {number} limit - Límite de resultados por página
    * @returns {Promise<Object>} Lista de proyectos y metadatos de paginación
    */
-  async listProjects(filters = {}, page = 1, limit = 10) {
+  async listProjects(filters = {}, page = 1, limit = 20) {
     try {
       const offset = (page - 1) * limit;
       const whereConditions = [];

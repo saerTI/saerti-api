@@ -229,7 +229,7 @@ export default {
    * @param {number} limit - Límite de resultados por página
    * @returns {Promise<Object>} Lista de previsionales y metadatos de paginación
    */
-  async list(filters = {}, page = 1, limit = 10) {
+  async list(filters = {}, page = 1, limit = 20) {
     try {
       const offset = (page - 1) * limit;
       const whereConditions = [];

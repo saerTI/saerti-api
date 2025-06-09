@@ -186,7 +186,7 @@ export default {
    * @param {number} limit - Límite de resultados por página
    * @returns {Promise<Object>} Lista de usuarios y metadatos de paginación
    */
-  async listAll(page = 1, limit = 10) {
+  async listAll(page = 1, limit = 200) {
     try {
       const offset = (page - 1) * limit;
       

@@ -125,7 +125,7 @@ export default {
   async listCompanyUsers(req, res, next) {
     try {
       const { company_id } = req.params;
-      const { page = 1, limit = 10, search } = req.query;
+      const { page = 1, limit = 20, search } = req.query;
       
       // Verificar permisos (solo admin general o admin de la misma compañía)
       const isCompanyAdmin = req.user.role === 'admin' && req.user.company_id === Number(company_id);

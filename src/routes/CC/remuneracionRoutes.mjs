@@ -1,7 +1,15 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../../middleware/auth.mjs';
-import remuneracionController from '../../controllers/CC/remuneracionController.mjs';
+import { 
+  getRemuneraciones,
+  getRemuneracionById,
+  createRemuneracion,
+  createRemuneracionesBatch,
+  updateRemuneracion,
+  deleteRemuneracion,
+  updateRemuneracionState
+} from '../../controllers/CC/remuneracionController.mjs';
 
 const router = Router();
 
@@ -31,9 +39,10 @@ router.post(
       .if(body('tipo').equals('ANTICIPO'))
       .notEmpty().withMessage('El anticipo es obligatorio para anticipos')
       .isFloat({ min: 0 }).withMessage('El anticipo debe ser un número positivo'),
-    body('proyectoId')
-      .notEmpty().withMessage('El proyecto es obligatorio')
-      .isString().withMessage('ID de proyecto inválido'),
+    // TODO: Cuando se implemente proyectos, descomentar:
+    // body('proyectoId')
+    //   .notEmpty().withMessage('El proyecto es obligatorio')
+    //   .isString().withMessage('ID de proyecto inválido'),
     body('fecha')
       .notEmpty().withMessage('La fecha es obligatoria')
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
@@ -42,7 +51,7 @@ router.post(
     body('diasTrabajados').optional().isInt({ min: 1, max: 31 }).withMessage('Días trabajados inválidos'),
     body('metodoPago').optional().isString().withMessage('Método de pago inválido')
   ],
-  remuneracionController.createRemuneracion
+  createRemuneracion
 );
 
 /**
@@ -67,7 +76,7 @@ router.post(
       .notEmpty().withMessage('La fecha es obligatoria')
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)')
   ],
-  remuneracionController.createRemuneracionesBatch
+  createRemuneracionesBatch
 );
 
 /**
@@ -78,7 +87,7 @@ router.post(
 router.get(
   '/api/remuneraciones',
   authenticate,
-  remuneracionController.getRemuneraciones
+  getRemuneraciones
 );
 
 /**
@@ -89,7 +98,7 @@ router.get(
 router.get(
   '/api/remuneraciones/:id',
   authenticate,
-  remuneracionController.getRemuneracionById
+  getRemuneracionById
 );
 
 /**
@@ -111,8 +120,9 @@ router.put(
       .isFloat({ min: 0 }).withMessage('El sueldo líquido debe ser un número positivo'),
     body('anticipo').optional()
       .isFloat({ min: 0 }).withMessage('El anticipo debe ser un número positivo'),
-    body('proyectoId').optional()
-      .isString().withMessage('ID de proyecto inválido'),
+    // TODO: Cuando se implemente proyectos, descomentar:
+    // body('proyectoId').optional()
+    //   .isString().withMessage('ID de proyecto inválido'),
     body('fecha').optional()
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
     body('estado').optional().isString().withMessage('Estado inválido'),
@@ -120,7 +130,7 @@ router.put(
     body('diasTrabajados').optional().isInt({ min: 1, max: 31 }).withMessage('Días trabajados inválidos'),
     body('metodoPago').optional().isString().withMessage('Método de pago inválido')
   ],
-  remuneracionController.updateRemuneracion
+  updateRemuneracion
 );
 
 /**
@@ -131,23 +141,25 @@ router.put(
 router.delete(
   '/api/remuneraciones/:id',
   authenticate,
-  remuneracionController.deleteRemuneracion
+  deleteRemuneracion
 );
 
 /**
- * @route   PATCH /api/remuneraciones/:id/state
+ * @route   PUT /api/remuneraciones/:id/state
  * @desc    Actualizar el estado de una remuneración
  * @access  Privado
  */
-router.patch(
+router.put(
   '/api/remuneraciones/:id/state',
   authenticate,
   [
     body('state')
       .notEmpty().withMessage('El estado es obligatorio')
       .isString().withMessage('Estado inválido')
+      .isIn(['draft', 'pending', 'approved', 'paid', 'rejected', 'cancelled'])
+      .withMessage('Estado no válido')
   ],
-  remuneracionController.updateRemuneracionState
+  updateRemuneracionState
 );
 
 export default router;

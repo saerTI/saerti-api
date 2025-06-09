@@ -54,7 +54,7 @@ export default {
     try {
       const { 
         page = 1, 
-        limit = 10,
+        limit = 20,
         status,
         search,
         start_date_from,
