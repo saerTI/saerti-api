@@ -5,21 +5,22 @@ import * as remuneracionModel from '../../models/CC/remuneracionModel.mjs';
  */
 async function getRemuneraciones(req, res, next) {
   try {
-    // Filtros
+    // Filtros - mapear nombres para compatibilidad
     const filters = {
-      search: req.query.search, // 🆕 Búsqueda general (nombre)
-      state: req.query.state,
+      search: req.query.search,
+      state: req.query.state || req.query.estado,
       projectId: req.query.projectId,
-      period: req.query.period,
+      costCenterId: req.query.costCenterId || req.query.centroCostoId,
+      period: req.query.period || req.query.periodo,
       area: req.query.area,
-      rut: req.query.rut, // 🆕 Búsqueda por RUT
-      type: req.query.type // 🆕 Filtro por tipo
+      rut: req.query.rut,
+      type: req.query.type || req.query.tipo
     };
 
-    // 🆕 Parámetros de paginación
+    // 🔥 CAMBIO CRÍTICO: Si no se especifica limit, obtener TODOS
     const pagination = {
-      limit: req.query.limit || 50,
-      offset: req.query.offset || 0
+      limit: req.query.limit ? parseInt(req.query.limit) : null, // null = SIN LÍMITE
+      offset: req.query.offset ? parseInt(req.query.offset) : 0
     };
 
     // Remover filtros vacíos
@@ -29,18 +30,15 @@ async function getRemuneraciones(req, res, next) {
       }
     });
 
-    // 🆕 Obtener datos con paginación
     const result = await remuneracionModel.getAll(filters, pagination);
-    
-    // 🆕 Obtener estadísticas (opcional, para mostrar totales)
     const stats = await remuneracionModel.getStats(filters);
     
     res.json({
       success: true,
       data: result.data,
-      pagination: result.pagination, // 🆕 Información de paginación
-      stats: stats, // 🆕 Estadísticas filtradas
-      filters: filters // 🆕 Filtros aplicados (para debug)
+      pagination: result.pagination,
+      stats: stats,
+      filters: filters
     });
   } catch (error) {
     next(error);
@@ -78,29 +76,27 @@ async function createRemuneracion(req, res, next) {
   try {
     const remuneracionData = {
       employee_id: req.body.employee_id || 0,
-      employee_name: req.body.nombre,
-      employee_rut: req.body.rut,
-      employee_position: req.body.cargo || 'No especificado',
+      employee_name: req.body.nombre || req.body.employee_name,
+      employee_rut: req.body.rut || req.body.employee_rut,
+      employee_position: req.body.cargo || req.body.employee_position || 'No especificado',
       
-      // TODO: Implementar funcionalidad de proyectos
-      // Cuando se implemente, reemplazar con:
-      // project_id: req.body.proyectoId ? parseInt(req.body.proyectoId) : null,
-      project_id: null, // TEMPORAL: Siempre NULL hasta implementar proyectos
+      // Mapear centro de costo
+      cost_center_id: req.body.costCenterId || req.body.cost_center_id,
+      centro_costo_code: req.body.centroCosto || req.body.centroCostoCode,
       
-      // TEMPORAL: Por ahora usamos campos de texto para centro de costo
-      project_name: req.body.centroCostoNombre || '',
-      project_code: req.body.centroCosto || '',
-      
-      type: req.body.tipo,
-      amount: req.body.montoTotal || (parseFloat(req.body.sueldoLiquido || 0) + parseFloat(req.body.anticipo || 0)),
-      sueldo_liquido: req.body.sueldoLiquido || null,
-      anticipo: req.body.anticipo || null,
-      date: req.body.fecha,
-      period: req.body.fecha.substring(0, 7),
-      work_days: req.body.diasTrabajados || 30,
-      payment_method: req.body.metodoPago || 'transfer',
-      state: req.body.estado || 'pending',
-      area: req.body.area || null
+      type: req.body.tipo || req.body.type,
+      amount: req.body.montoTotal || req.body.amount || 
+              (parseFloat(req.body.sueldoLiquido || req.body.net_salary || 0) + 
+               parseFloat(req.body.anticipo || req.body.advance_payment || 0)),
+      sueldo_liquido: req.body.sueldoLiquido || req.body.net_salary,
+      anticipo: req.body.anticipo || req.body.advance_payment,
+      date: req.body.fecha || req.body.date,
+      period: (req.body.fecha || req.body.date)?.substring(0, 7),
+      work_days: req.body.diasTrabajados || req.body.work_days || 30,
+      payment_method: req.body.metodoPago || req.body.payment_method || 'transferencia',
+      state: req.body.estado || req.body.state || 'pending', // Será mapeado en el modelo
+      area: req.body.area,
+      notes: req.body.notas || req.body.notes
     };
     
     const remuneracion = await remuneracionModel.create(remuneracionData);
@@ -129,81 +125,58 @@ async function createRemuneracionesBatch(req, res, next) {
       });
     }
     
-    // Array para almacenar IDs creados
     const createdIds = [];
     const errorItems = [];
     
-    // Log para depuración
     console.log(`Procesando ${remuneracionesData.length} remuneraciones...`);
-    console.log('Primer item:', JSON.stringify(remuneracionesData[0], null, 2));
     
-    // Procesar cada remuneración
     for (const [index, item] of remuneracionesData.entries()) {
       try {
-        // Convertir datos al formato del modelo
         const remuneracionData = {
           employee_id: item.employee_id || 0,
-          employee_name: item.nombre,
-          employee_rut: item.rut,
-          employee_position: item.cargo || 'No especificado',
+          employee_name: item.nombre || item.employee_name,
+          employee_rut: item.rut || item.employee_rut,
+          employee_position: item.cargo || item.employee_position || 'No especificado',
           
-          // TODO: Implementar funcionalidad de proyectos
-          // Cuando se implemente, reemplazar project_id: null con:
-          // project_id: item.proyectoId ? parseInt(item.proyectoId) : null,
-          project_id: null, // TEMPORAL: Siempre NULL hasta implementar proyectos
+          // Mapear centro de costo
+          cost_center_id: item.costCenterId || item.cost_center_id,
+          centro_costo_code: item.centroCosto || item.centroCostoCode,
           
-          // TEMPORAL: Guardar info de centro de costo en campos de texto
-          project_name: item.centroCostoNombre || item.centroCosto || '',
-          project_code: item.centroCosto || '',
-          
-          type: item.tipo,
-          
-          // Usar montoTotal o calcular correctamente
-          amount: item.montoTotal || (parseFloat(item.sueldoLiquido || 0) + parseFloat(item.anticipo || 0)),
-          
-          sueldo_liquido: item.sueldoLiquido || null,
-          anticipo: item.anticipo || null,
-          date: item.fecha,
-          period: item.fecha.substring(0, 7), // Formato YYYY-MM
-          work_days: item.diasTrabajados || 30,
-          payment_method: item.metodoPago || 'transfer',
-          state: item.estado || 'pending',
-          area: item.area || null
+          type: item.tipo || item.type,
+          amount: item.montoTotal || item.amount || 
+                  (parseFloat(item.sueldoLiquido || item.net_salary || 0) + 
+                   parseFloat(item.anticipo || item.advance_payment || 0)),
+          sueldo_liquido: item.sueldoLiquido || item.net_salary,
+          anticipo: item.anticipo || item.advance_payment,
+          date: item.fecha || item.date,
+          period: (item.fecha || item.date)?.substring(0, 7),
+          work_days: item.diasTrabajados || item.work_days || 30,
+          payment_method: item.metodoPago || item.payment_method || 'transferencia',
+          state: item.estado || item.state || 'pending', // Será mapeado en el modelo
+          area: item.area,
+          notes: item.notas || item.notes
         };
         
-        // Log para depuración de los primeros items
-        if (index < 3) {
-          console.log(`Item ${index} procesado:`, {
-            nombre: remuneracionData.employee_name,
-            amount: remuneracionData.amount,
-            project_id: remuneracionData.project_id,
-            project_code: remuneracionData.project_code
-          });
-        }
-        
-        // Crear remuneración
         const remuneracion = await remuneracionModel.create(remuneracionData);
         createdIds.push(remuneracion.id);
         
-        // Log de progreso cada 50 items
         if ((index + 1) % 50 === 0) {
           console.log(`Procesados ${index + 1}/${remuneracionesData.length} items`);
         }
       } catch (error) {
-        // Registrar error pero continuar con el resto
         errorItems.push({
           index,
           item: {
-            nombre: item.nombre,
-            rut: item.rut,
+            nombre: item.nombre || item.employee_name,
+            rut: item.rut || item.employee_rut,
+            centroCosto: item.centroCosto || item.centroCostoCode,
             error: error.message
           }
         });
-        console.error(`Error al procesar item ${index} (${item.nombre}):`, error.message);
+        console.error(`Error al procesar item ${index}:`, error.message);
       }
     }
     
-    // Devolver resultado
     res.status(201).json({
       success: true,
       message: `${createdIds.length} registros de remuneración creados exitosamente`,
@@ -227,25 +200,28 @@ async function updateRemuneracion(req, res, next) {
     const { id } = req.params;
     
     const remuneracionData = {
-      employee_name: req.body.nombre,
-      employee_rut: req.body.rut,
-      employee_position: req.body.cargo,
+      employee_name: req.body.nombre || req.body.employee_name,
+      employee_rut: req.body.rut || req.body.employee_rut,
+      employee_position: req.body.cargo || req.body.employee_position,
       
-      // TODO: Implementar funcionalidad de proyectos
-      project_id: null, // TEMPORAL: Siempre NULL
-      project_name: req.body.centroCostoNombre || '',
-      project_code: req.body.centroCosto || '',
+      // Mapear centro de costo
+      cost_center_id: req.body.costCenterId || req.body.cost_center_id,
+      centro_costo_code: req.body.centroCosto || req.body.centroCostoCode,
       
-      type: req.body.tipo,
-      amount: req.body.montoTotal || (parseFloat(req.body.sueldoLiquido || 0) + parseFloat(req.body.anticipo || 0)),
-      sueldo_liquido: req.body.sueldoLiquido || null,
-      anticipo: req.body.anticipo || null,
-      date: req.body.fecha,
-      period: req.body.fecha.substring(0, 7),
-      work_days: req.body.diasTrabajados || 30,
-      payment_method: req.body.metodoPago || 'transfer',
-      state: req.body.estado || 'pending',
-      area: req.body.area || null
+      type: req.body.tipo || req.body.type,
+      amount: req.body.montoTotal || req.body.amount || 
+              (parseFloat(req.body.sueldoLiquido || req.body.net_salary || 0) + 
+               parseFloat(req.body.anticipo || req.body.advance_payment || 0)),
+      sueldo_liquido: req.body.sueldoLiquido || req.body.net_salary,
+      anticipo: req.body.anticipo || req.body.advance_payment,
+      date: req.body.fecha || req.body.date,
+      period: (req.body.fecha || req.body.date)?.substring(0, 7),
+      work_days: req.body.diasTrabajados || req.body.work_days || 30,
+      payment_method: req.body.metodoPago || req.body.payment_method || 'transferencia',
+      state: req.body.estado || req.body.state || 'pending', // Será mapeado en el modelo
+      area: req.body.area,
+      payment_date: req.body.payment_date,
+      notes: req.body.notas || req.body.notes
     };
     
     const updated = await remuneracionModel.update(id, remuneracionData);
@@ -300,9 +276,20 @@ async function updateRemuneracionState(req, res, next) {
     const { id } = req.params;
     const { state } = req.body;
     
-    // Validar que el estado sea válido
-    const validStates = ['draft', 'pending', 'approved', 'paid', 'rejected', 'cancelled'];
-    if (!validStates.includes(state)) {
+    // Mapear estados de inglés a español
+    const validStatesMap = {
+      'draft': 'pendiente',
+      'pending': 'pendiente', 
+      'approved': 'aprobado',
+      'paid': 'pagado',
+      'rejected': 'rechazado',
+      'cancelled': 'cancelado'
+    };
+    
+    const mappedState = validStatesMap[state] || state;
+    const validStates = ['pendiente', 'aprobado', 'pagado', 'rechazado', 'cancelado'];
+    
+    if (!validStates.includes(mappedState)) {
       return res.status(400).json({
         success: false,
         message: 'Estado no válido'
@@ -321,16 +308,16 @@ async function updateRemuneracionState(req, res, next) {
     // Actualizar solo el estado
     const remuneracionData = {
       ...currentRemuneracion,
-      state: state,
+      state: mappedState,
       // Si se está marcando como pagado, establecer fecha de pago
-      payment_date: state === 'paid' ? new Date().toISOString().split('T')[0] : currentRemuneracion.payment_date
+      payment_date: mappedState === 'pagado' ? new Date().toISOString().split('T')[0] : currentRemuneracion.payment_date
     };
     
     const updated = await remuneracionModel.update(id, remuneracionData);
     
     res.json({
       success: true,
-      message: `Estado de remuneración actualizado a ${state}`,
+      message: `Estado de remuneración actualizado a ${mappedState}`,
       data: updated
     });
   } catch (error) {

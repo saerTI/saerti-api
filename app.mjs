@@ -1,3 +1,4 @@
+// app.mjs
 import express from 'express';
 import cors from 'cors';
 import { testConnection } from './src/config/database.mjs';
@@ -5,12 +6,15 @@ import { errorHandler } from './src/middleware/errorHandler.mjs';
 
 // Importar rutas
 import authRoutes from './src/routes/authRoutes.mjs';
+import userRoutes from './src/routes/userRoutes.mjs';
 import projectRoutes from './src/routes/projectRoutes.mjs';
 import milestoneRoutes from './src/routes/milestoneRoutes.mjs';
 import cashFlowRoutes from './src/routes/cashFlowRoutes.mjs';
 import reportRoutes from './src/routes/reportRoutes.mjs';
 import previsionalRoutes from './src/routes/CC/previsionalRoutes.mjs';
 import remuneracionRoutes from './src/routes/CC/remuneracionRoutes.mjs';
+import ordenCompraRoutes from './src/routes/CC/ordenCompraRoutes.mjs';
+
 
 // Inicializar aplicación de Express
 const app = express();
@@ -40,19 +44,22 @@ app.use((req, res, next) => {
 });
 
 // Rutas
-app.use(authRoutes);
+app.use(authRoutes);        // /api/auth/* - Autenticación y perfil personal
+app.use(userRoutes);        // ⭐ /api/users/* - Gestión administrativa de usuarios (SOLO ADMINS)
 app.use(projectRoutes);
 app.use(milestoneRoutes);
 app.use(cashFlowRoutes);
 app.use(reportRoutes);
 app.use(previsionalRoutes);
 app.use(remuneracionRoutes);
+app.use(ordenCompraRoutes);
+
 
 // Ruta de prueba para verificar que la API está funcionando
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'success',
-    message: 'ConstructFlow API está funcionando correctamente',
+    message: 'SAER API está funcionando correctamente',
     timestamp: new Date(),
     version: '1.0.0'
   });

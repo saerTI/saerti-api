@@ -1,3 +1,4 @@
+// src/models/userModel.mjs
 import { pool } from '../config/database.mjs';
 import bcrypt from 'bcrypt';
 
@@ -7,13 +8,13 @@ import bcrypt from 'bcrypt';
 export default {
   /**
    * Obtiene un usuario por su ID
-   * @param {number} id - ID del usuario
-   * @returns {Promise<Object|null>} Datos del usuario o null si no existe
    */
   async getById(id) {
     try {
       const [rows] = await pool.query(
-        'SELECT id, name, email, role, active, created_at, updated_at FROM users WHERE id = ?',
+        `SELECT id, name, email, role, active, created_at, updated_at,
+                position, location, address 
+         FROM users WHERE id = ?`,
         [id]
       );
       return rows.length > 0 ? rows[0] : null;
@@ -25,13 +26,13 @@ export default {
 
   /**
    * Obtiene un usuario por su email
-   * @param {string} email - Email del usuario
-   * @returns {Promise<Object|null>} Datos del usuario o null si no existe
    */
   async getByEmail(email) {
     try {
       const [rows] = await pool.query(
-        'SELECT * FROM users WHERE email = ?',
+        `SELECT id, name, email, password, role, active, created_at, updated_at,
+                position, location, address 
+         FROM users WHERE email = ?`,
         [email]
       );
       return rows.length > 0 ? rows[0] : null;
@@ -43,8 +44,6 @@ export default {
 
   /**
    * Crea un nuevo usuario
-   * @param {Object} userData - Datos del usuario
-   * @returns {Promise<Object>} Usuario creado
    */
   async create(userData) {
     try {
@@ -53,8 +52,17 @@ export default {
       
       // Insertar usuario
       const [result] = await pool.query(
-        'INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)',
-        [userData.name, userData.email, hashedPassword, userData.role || 'user']
+        `INSERT INTO users (name, email, password, role, position, location, address) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userData.name, 
+          userData.email, 
+          hashedPassword, 
+          userData.role || 'user',
+          userData.position || null,
+          userData.location || null,
+          userData.address || null
+        ]
       );
       
       // Devolver el usuario creado sin la contraseña
@@ -62,7 +70,10 @@ export default {
         id: result.insertId,
         name: userData.name,
         email: userData.email,
-        role: userData.role || 'user'
+        role: userData.role || 'user',
+        position: userData.position || null,
+        location: userData.location || null,
+        address: userData.address || null
       };
     } catch (error) {
       console.error('Error en create:', error.message);
@@ -72,9 +83,6 @@ export default {
 
   /**
    * Actualiza los datos de un usuario
-   * @param {number} id - ID del usuario a actualizar
-   * @param {Object} userData - Datos a actualizar
-   * @returns {Promise<boolean>} Resultado de la operación
    */
   async update(id, userData) {
     try {
@@ -107,6 +115,22 @@ export default {
         updateFields.push('active = ?');
         queryParams.push(userData.active);
       }
+
+      // Campos del perfil
+      if (userData.position !== undefined) {
+        updateFields.push('position = ?');
+        queryParams.push(userData.position);
+      }
+
+      if (userData.location !== undefined) {
+        updateFields.push('location = ?');
+        queryParams.push(userData.location);
+      }
+
+      if (userData.address !== undefined) {
+        updateFields.push('address = ?');
+        queryParams.push(userData.address);
+      }
       
       // Si no hay campos para actualizar, retornar
       if (updateFields.length === 0) {
@@ -131,8 +155,6 @@ export default {
 
   /**
    * Elimina un usuario
-   * @param {number} id - ID del usuario a eliminar
-   * @returns {Promise<boolean>} Resultado de la operación
    */
   async delete(id) {
     try {
@@ -150,9 +172,6 @@ export default {
 
   /**
    * Verifica las credenciales de un usuario
-   * @param {string} email - Email del usuario
-   * @param {string} password - Contraseña a verificar
-   * @returns {Promise<Object|null>} Usuario autenticado o null si las credenciales son inválidas
    */
   async authenticate(email, password) {
     try {
@@ -181,23 +200,53 @@ export default {
   },
 
   /**
-   * Lista todos los usuarios con paginación
-   * @param {number} page - Número de página
-   * @param {number} limit - Límite de resultados por página
-   * @returns {Promise<Object>} Lista de usuarios y metadatos de paginación
+   * Lista todos los usuarios con paginación y filtros
    */
-  async listAll(page = 1, limit = 200) {
+  async listAll(page = 1, limit = 20, filters = {}) {
     try {
       const offset = (page - 1) * limit;
+      const whereConditions = [];
+      const queryParams = [];
+      
+      // Aplicar filtros
+      if (filters.search) {
+        whereConditions.push('(name LIKE ? OR email LIKE ?)');
+        const searchTerm = `%${filters.search}%`;
+        queryParams.push(searchTerm, searchTerm);
+      }
+      
+      if (filters.role) {
+        whereConditions.push('role = ?');
+        queryParams.push(filters.role);
+      }
+      
+      if (filters.active !== undefined) {
+        whereConditions.push('active = ?');
+        queryParams.push(filters.active);
+      }
+      
+      // Construir la cláusula WHERE
+      const whereClause = whereConditions.length > 0 
+        ? `WHERE ${whereConditions.join(' AND ')}` 
+        : '';
       
       // Obtener usuarios
       const [rows] = await pool.query(
-        'SELECT id, name, email, role, active, created_at, updated_at FROM users LIMIT ? OFFSET ?',
-        [parseInt(limit), parseInt(offset)]
+        `SELECT id, name, email, role, active, created_at, updated_at,
+                position, location, address
+         FROM users 
+         ${whereClause} 
+         ORDER BY created_at DESC 
+         LIMIT ? OFFSET ?`,
+        [...queryParams, parseInt(limit), parseInt(offset)]
       );
       
       // Obtener total de usuarios para la paginación
-      const [countResult] = await pool.query('SELECT COUNT(*) AS total FROM users');
+      const [countResult] = await pool.query(
+        `SELECT COUNT(*) AS total FROM users ${whereClause}`,
+        queryParams
+      );
+      
       const total = countResult[0].total;
       
       return {
@@ -211,6 +260,123 @@ export default {
       };
     } catch (error) {
       console.error('Error en listAll:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Cuenta usuarios por rol
+   */
+  async countByRole(role) {
+    try {
+      const [rows] = await pool.query(
+        'SELECT COUNT(*) AS count FROM users WHERE role = ?',
+        [role]
+      );
+      return rows[0].count;
+    } catch (error) {
+      console.error('Error en countByRole:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Cuenta usuarios activos por rol
+   */
+  async countActiveByRole(role) {
+    try {
+      const [rows] = await pool.query(
+        'SELECT COUNT(*) AS count FROM users WHERE role = ? AND active = TRUE',
+        [role]
+      );
+      return rows[0].count;
+    } catch (error) {
+      console.error('Error en countActiveByRole:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Obtiene estadísticas generales de usuarios
+   */
+  async getStats() {
+    try {
+      // Obtener conteos por rol
+      const [roleStats] = await pool.query(`
+        SELECT 
+          role,
+          COUNT(*) as total,
+          COUNT(CASE WHEN active = TRUE THEN 1 END) as active,
+          COUNT(CASE WHEN active = FALSE THEN 1 END) as inactive
+        FROM users 
+        GROUP BY role
+      `);
+      
+      // Obtener estadísticas generales
+      const [generalStats] = await pool.query(`
+        SELECT 
+          COUNT(*) as total_users,
+          COUNT(CASE WHEN active = TRUE THEN 1 END) as active_users,
+          COUNT(CASE WHEN active = FALSE THEN 1 END) as inactive_users,
+          COUNT(CASE WHEN created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) THEN 1 END) as new_last_month
+        FROM users
+      `);
+      
+      // Obtener usuarios recientes
+      const [recentUsers] = await pool.query(`
+        SELECT id, name, email, role, created_at 
+        FROM users 
+        ORDER BY created_at DESC 
+        LIMIT 5
+      `);
+      
+      return {
+        byRole: roleStats,
+        general: generalStats[0],
+        recentUsers
+      };
+    } catch (error) {
+      console.error('Error en getStats:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Verifica si un usuario tiene un rol específico
+   */
+  async hasRole(userId, role) {
+    try {
+      const [rows] = await pool.query(
+        'SELECT id FROM users WHERE id = ? AND role = ? AND active = TRUE',
+        [userId, role]
+      );
+      return rows.length > 0;
+    } catch (error) {
+      console.error('Error en hasRole:', error.message);
+      throw error;
+    }
+  },
+
+  /**
+   * Obtiene todos los usuarios con un rol específico
+   */
+  async getByRole(role, activeOnly = true) {
+    try {
+      let query = `SELECT id, name, email, role, active, created_at,
+                          position, location, address
+                   FROM users WHERE role = ?`;
+      const params = [role];
+      
+      if (activeOnly) {
+        query += ' AND active = TRUE';
+      }
+      
+      query += ' ORDER BY name';
+      
+      const [rows] = await pool.query(query, params);
+      return rows;
+    } catch (error) {
+      console.error('Error en getByRole:', error.message);
       throw error;
     }
   }

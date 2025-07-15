@@ -1,3 +1,4 @@
+// src/middleware/auth.mjs
 import jwt from 'jsonwebtoken';
 import config from '../config/config.mjs';
 import { pool } from '../config/database.mjs';
@@ -18,6 +19,8 @@ export const authenticate = async (req, res, next) => {
 
     // Extraer y verificar el token
     const token = authHeader.split(' ')[1];
+    // console.log(`Token: ${token}`);
+    
     const decoded = jwt.verify(token, config.jwt.secret);
 
     // Verificar si el usuario existe y está activo
@@ -78,4 +81,89 @@ export const authorize = (...roles) => {
     
     next();
   };
+};
+
+/**
+ * Middleware que permite acceso a admins y al usuario propietario del recurso
+ * @param {string} paramName - Nombre del parámetro que contiene el ID del usuario
+ */
+export const authorizeOwnerOrAdmin = (paramName = 'id') => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Autenticación requerida' 
+      });
+    }
+    
+    const resourceUserId = req.params[paramName];
+    const isOwner = req.user.id.toString() === resourceUserId;
+    const isAdmin = req.user.role === 'admin';
+    
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        message: 'No tienes permiso para acceder a este recurso' 
+      });
+    }
+    
+    next();
+  };
+};
+
+/**
+ * Middleware para verificar si el usuario es administrador o manager
+ */
+export const authorizeAdminOrManager = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Autenticación requerida' 
+    });
+  }
+  
+  if (!['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Acceso restringido a administradores y managers' 
+    });
+  }
+  
+  next();
+};
+
+/**
+ * Middleware para solo lectura - permite a todos los usuarios autenticados ver
+ */
+export const authorizeReadOnly = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Autenticación requerida' 
+    });
+  }
+  
+  // Todos los usuarios autenticados pueden leer
+  next();
+};
+
+/**
+ * Middleware que bloquea a usuarios con rol 'user' para operaciones de escritura
+ */
+export const blockUserRoleWrite = (req, res, next) => {
+  if (!req.user) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'Autenticación requerida' 
+    });
+  }
+  
+  if (req.user.role === 'user') {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Los usuarios base solo tienen permisos de lectura' 
+    });
+  }
+  
+  next();
 };
