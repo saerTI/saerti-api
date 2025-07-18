@@ -133,10 +133,10 @@ export default {
     try {
       const [result] = await pool.query(
         `INSERT INTO cash_flow_lines 
-         (project_id, name, category_id, type, planned_date, actual_date, amount, state, partner_id, notes) 
+         (cost_center_id, name, category_id, type, planned_date, actual_date, amount, state, partner_id, notes) 
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          lineData.project_id,
+          lineData.cost_center_id,
           lineData.name,
           lineData.category_id,
           lineData.type,
@@ -237,7 +237,7 @@ export default {
         SELECT cf.*, cat.name as category_name 
         FROM cash_flow_lines cf
         JOIN cash_flow_categories cat ON cf.category_id = cat.id
-        WHERE cf.project_id = ?
+        WHERE cf.cost_center_id = ?
       `;
       
       const queryParams = [projectId];
@@ -291,7 +291,7 @@ export default {
           SUM(CASE WHEN type = 'income' AND state = 'forecast' THEN amount ELSE 0 END) as forecast_income,
           SUM(CASE WHEN type = 'expense' AND state = 'forecast' THEN amount ELSE 0 END) as forecast_expense
         FROM cash_flow_lines
-        WHERE project_id = ?
+        WHERE cost_center_id = ?
       `, [projectId]);
       
       // Calcular saldos
@@ -321,7 +321,7 @@ export default {
           type,
           SUM(amount) as total
         FROM cash_flow_lines
-        WHERE project_id = ? 
+        WHERE cost_center_id = ? 
           AND YEAR(COALESCE(actual_date, planned_date)) = ?
         GROUP BY DATE_FORMAT(COALESCE(actual_date, planned_date), '%Y-%m'), type
         ORDER BY month

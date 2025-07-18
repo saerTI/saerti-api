@@ -30,7 +30,7 @@ export default {
         employee_id: req.body.employee_id || 0, // Placeholder, en producción se debería validar
         employee_name: req.body.nombre,
         employee_rut: req.body.rut,
-        project_id: req.body.proyectoId || null,
+        cost_center_id: req.body.proyectoId || null,
         type: req.body.tipo,
         amount: req.body.monto,
         date: req.body.fecha,
@@ -67,7 +67,7 @@ export default {
         limit = 20,
         state,
         category,
-        project_id,
+        cost_center_id,
         period,
         area,
         centro_costo,
@@ -84,7 +84,7 @@ export default {
       // Aplicar filtros
       if (state) filters.state = state;
       if (category) filters.category = category;
-      if (project_id) filters.project_id = project_id;
+      if (cost_center_id) filters.cost_center_id = cost_center_id;
       if (period) {
         // Si period viene como string, convertirlo a array
         filters.period = typeof period === 'string' ? [period] : period;
@@ -176,7 +176,7 @@ export default {
       if (req.body.nombre) previsionalData.employee_name = req.body.nombre;
       if (req.body.tipo) previsionalData.type = req.body.tipo;
       if (req.body.monto) previsionalData.amount = req.body.monto;
-      if (req.body.proyectoId) previsionalData.project_id = req.body.proyectoId;
+      if (req.body.proyectoId) previsionalData.cost_center_id = req.body.proyectoId;
       if (req.body.fecha) {
         previsionalData.date = req.body.fecha;
         previsionalData.period = req.body.fecha;

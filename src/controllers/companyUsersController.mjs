@@ -39,7 +39,7 @@ export default {
       
       // Verificar si la compañía existe
       const [companies] = await pool.query(
-        'SELECT * FROM construction_projects WHERE id = ?',
+        'SELECT * FROM cost_centers WHERE id = ?',
         [company_id]
       );
       
@@ -98,7 +98,7 @@ export default {
         `SELECT u.id, u.name, u.email, u.role, u.position, u.company_id, 
                 c.name as company_name, u.created_at, u.active
          FROM users u
-         LEFT JOIN construction_projects c ON u.company_id = c.id
+         LEFT JOIN cost_centers c ON u.company_id = c.id
          WHERE u.id = ?`,
         [result.insertId]
       );
@@ -143,7 +143,7 @@ export default {
         SELECT u.id, u.name, u.email, u.role, u.position, u.company_id, 
                c.name as company_name, u.created_at, u.active
         FROM users u
-        LEFT JOIN construction_projects c ON u.company_id = c.id
+        LEFT JOIN cost_centers c ON u.company_id = c.id
         WHERE u.company_id = ?
       `;
       
@@ -324,7 +324,7 @@ export default {
         `SELECT u.id, u.name, u.email, u.role, u.position, u.company_id, 
                 c.name as company_name, u.created_at, u.active
          FROM users u
-         LEFT JOIN construction_projects c ON u.company_id = c.id
+         LEFT JOIN cost_centers c ON u.company_id = c.id
          WHERE u.id = ?`,
         [id]
       );

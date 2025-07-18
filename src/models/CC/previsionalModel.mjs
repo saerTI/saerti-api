@@ -20,10 +20,10 @@ export default {
         let projectName = null;
         let projectCode = null;
         
-        if (previsionalData.project_id) {
+        if (previsionalData.cost_center_id) {
           const [projectRows] = await connection.query(
-            'SELECT name, code FROM construction_projects WHERE id = ?',
-            [previsionalData.project_id]
+            'SELECT name, code FROM cost_centers WHERE id = ?',
+            [previsionalData.cost_center_id]
           );
           
           if (projectRows.length > 0) {
@@ -35,7 +35,7 @@ export default {
         // Insertar previsional
         const [result] = await connection.query(
           `INSERT INTO previsionales 
-           (employee_id, employee_name, employee_rut, project_id, project_name, project_code, 
+           (employee_id, employee_name, employee_rut, cost_center_id, project_name, project_code, 
             type, amount, date, period, state, area, centro_costo, centro_costo_nombre, 
             descuentos_legales, payment_date, notes) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -43,7 +43,7 @@ export default {
             previsionalData.employee_id,
             previsionalData.employee_name,
             previsionalData.employee_rut,
-            previsionalData.project_id || null,
+            previsionalData.cost_center_id || null,
             projectName,
             projectCode,
             previsionalData.type,
@@ -122,10 +122,10 @@ export default {
         let projectName = null;
         let projectCode = null;
         
-        if (previsionalData.project_id) {
+        if (previsionalData.cost_center_id) {
           const [projectRows] = await connection.query(
-            'SELECT name, code FROM construction_projects WHERE id = ?',
-            [previsionalData.project_id]
+            'SELECT name, code FROM cost_centers WHERE id = ?',
+            [previsionalData.cost_center_id]
           );
           
           if (projectRows.length > 0) {
@@ -143,7 +143,7 @@ export default {
         
         // Construir consulta dinámica con solo los campos a actualizar
         const updateableFields = [
-          'employee_id', 'employee_name', 'employee_rut', 'project_id', 'project_name',
+          'employee_id', 'employee_name', 'employee_rut', 'cost_center_id', 'project_name',
           'project_code', 'type', 'amount', 'date', 'period', 'state', 'area', 
           'centro_costo', 'centro_costo_nombre', 'descuentos_legales', 'payment_date', 'notes'
         ];
@@ -246,9 +246,9 @@ export default {
         queryParams.push(filters.category);
       }
       
-      if (filters.project_id) {
-        whereConditions.push('project_id = ?');
-        queryParams.push(filters.project_id);
+      if (filters.cost_center_id) {
+        whereConditions.push('cost_center_id = ?');
+        queryParams.push(filters.cost_center_id);
       }
       
       if (filters.period && Array.isArray(filters.period) && filters.period.length > 0) {

@@ -14,10 +14,10 @@ export default {
       // Insertar hito
       const [result] = await pool.query(
         `INSERT INTO construction_milestones 
-         (project_id, name, description, planned_date, amount, weight, sequence) 
+         (cost_center_id, name, description, planned_date, amount, weight, sequence) 
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
-          milestoneData.project_id,
+          milestoneData.cost_center_id,
           milestoneData.name,
           milestoneData.description || null,
           milestoneData.planned_date,
@@ -151,7 +151,7 @@ export default {
   async listByProject(projectId) {
     try {
       const [rows] = await pool.query(
-        'SELECT * FROM construction_milestones WHERE project_id = ? ORDER BY sequence ASC, planned_date ASC',
+        'SELECT * FROM construction_milestones WHERE cost_center_id = ? ORDER BY sequence ASC, planned_date ASC',
         [projectId]
       );
       
@@ -171,7 +171,7 @@ export default {
     try {
       // Obtener todos los hitos del proyecto
       const [milestones] = await pool.query(
-        'SELECT id, name, weight, is_completed FROM construction_milestones WHERE project_id = ?',
+        'SELECT id, name, weight, is_completed FROM construction_milestones WHERE cost_center_id = ?',
         [projectId]
       );
       

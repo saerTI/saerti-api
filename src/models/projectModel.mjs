@@ -18,7 +18,7 @@ export default {
         
         // Insertar proyecto
         const [result] = await connection.query(
-          `INSERT INTO construction_projects 
+          `INSERT INTO cost_centers 
            (owner_id, name, code, client_id, status, start_date, expected_end_date, total_budget, description, location, location_lat, location_lon) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
@@ -41,7 +41,7 @@ export default {
         
         // Obtener el proyecto creado
         const [projects] = await connection.query(
-          'SELECT * FROM construction_projects WHERE id = ?',
+          'SELECT * FROM cost_centers WHERE id = ?',
           [projectId]
         );
         
@@ -67,7 +67,7 @@ export default {
   async getById(id) {
     try {
       const [rows] = await pool.query(
-        'SELECT * FROM construction_projects WHERE id = ?',
+        'SELECT * FROM cost_centers WHERE id = ?',
         [id]
       );
       
@@ -117,7 +117,7 @@ export default {
       
       // Ejecutar actualización
       const [result] = await pool.query(
-        `UPDATE construction_projects SET ${fields.join(', ')} WHERE id = ?`,
+        `UPDATE cost_centers SET ${fields.join(', ')} WHERE id = ?`,
         values
       );
       
@@ -142,7 +142,7 @@ export default {
         
         // Eliminar el proyecto (las tablas relacionadas se eliminarán por CASCADE)
         const [result] = await connection.query(
-          'DELETE FROM construction_projects WHERE id = ?',
+          'DELETE FROM cost_centers WHERE id = ?',
           [id]
         );
         
@@ -175,7 +175,7 @@ export default {
       }
       
       const [result] = await pool.query(
-        'UPDATE construction_projects SET status = ? WHERE id = ?',
+        'UPDATE cost_centers SET status = ? WHERE id = ?',
         [status, id]
       );
       
@@ -233,7 +233,7 @@ export default {
       
       // Obtener proyectos
       const [rows] = await pool.query(
-        `SELECT * FROM construction_projects 
+        `SELECT * FROM cost_centers 
          ${whereClause} 
          ORDER BY created_at DESC 
          LIMIT ? OFFSET ?`,
@@ -242,7 +242,7 @@ export default {
       
       // Obtener total de proyectos para la paginación
       const [countResult] = await pool.query(
-        `SELECT COUNT(*) AS total FROM construction_projects ${whereClause}`,
+        `SELECT COUNT(*) AS total FROM cost_centers ${whereClause}`,
         queryParams
       );
       
@@ -274,7 +274,7 @@ export default {
           status, 
           COUNT(*) AS count,
           SUM(total_budget) AS total_budget
-        FROM construction_projects 
+        FROM cost_centers 
         GROUP BY status
       `);
       

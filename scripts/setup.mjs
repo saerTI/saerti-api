@@ -112,6 +112,7 @@ async function createUsersTable() {
         position VARCHAR(100) DEFAULT NULL COMMENT 'User position or job title',
         location VARCHAR(200) DEFAULT NULL COMMENT 'General user location',
         address TEXT DEFAULT NULL COMMENT 'User address',
+        emergency_phone VARCHAR(20) DEFAULT NULL COMMENT 'Emergency contact phone number',
         default_cost_center_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'User default cost center',
         active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -219,7 +220,7 @@ async function addCostCentersForeignKeys() {
     await conn.query(`
       ALTER TABLE cost_centers 
       ADD CONSTRAINT fk_cost_center_client 
-      FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE SET NULL
+      FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
     `);
     
     await conn.query(`
@@ -364,6 +365,672 @@ async function createAccountCategoriesTable() {
   }
 }
 
+async function createEmployeesTable() {
+  try {
+    const exists = await checkTableExists('employees');
+    if (exists) {
+      console.log('ℹ️ Employees table already exists');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS employees (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tax_id VARCHAR(20) NOT NULL UNIQUE COMMENT 'RUT del empleado',
+        full_name VARCHAR(255) NOT NULL,
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        email VARCHAR(100),
+        phone VARCHAR(50),
+        emergency_phone VARCHAR(20) DEFAULT NULL COMMENT 'Emergency contact phone number',
+        position VARCHAR(100),
+        department VARCHAR(100),
+        hire_date DATE,
+        termination_date DATE,
+        default_cost_center_id BIGINT UNSIGNED NULL,
+        salary_base DECIMAL(15,2) NULL COMMENT 'Sueldo base mensual',
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        FOREIGN KEY (default_cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
+        
+        INDEX idx_tax_id (tax_id),
+        INDEX idx_full_name (full_name),
+        INDEX idx_position (position),
+        INDEX idx_department (department),
+        INDEX idx_active (active),
+        INDEX idx_default_cost_center (default_cost_center_id)
+      )
+    `);
+    console.log('✅ Employees table created');
+  } catch (error) {
+    console.error('❌ Error creating employees table:', error);
+    throw error;
+  }
+}
+
+async function evolveAccountingCostsTable() {
+  try {
+    // Verificar si ya tiene las nuevas columnas
+    const [columns] = await conn.query('DESCRIBE accounting_costs');
+    const hasTypeColumn = columns.some(col => col.Field === 'transaction_type');
+    
+    if (hasTypeColumn) {
+      console.log('ℹ️ Accounting_costs table already evolved');
+      return;
+    }
+
+    console.log('🔄 Evolving accounting_costs table...');
+    console.log('📋 Se añadirán las siguientes columnas:');
+    console.log('   - transaction_type: para separar ingresos de gastos');
+    console.log('   - employee_id: referencia directa a empleados');
+    console.log('   - period_year/month: para filtros rápidos por período');
+    console.log('   - tags/metadata: campos JSON flexibles (opcional)');
+    
+    // ✅ PASO 1: Añadir nuevas columnas
+    await conn.query(`
+      ALTER TABLE accounting_costs 
+      ADD COLUMN transaction_type ENUM('ingreso', 'gasto') NOT NULL DEFAULT 'gasto' AFTER cost_type,
+      ADD COLUMN employee_id BIGINT UNSIGNED NULL AFTER supplier_id,
+      ADD COLUMN period_year INT NOT NULL DEFAULT 2024 AFTER period,
+      ADD COLUMN period_month INT NOT NULL DEFAULT 1 AFTER period_year,
+      ADD COLUMN tags JSON NULL COMMENT 'Etiquetas para filtrado flexible',
+      ADD COLUMN metadata JSON NULL COMMENT 'Metadatos adicionales flexibles'
+    `);
+    console.log('   ✅ Columnas añadidas');
+    
+    // ✅ PASO 2: Añadir foreign key para empleados
+    await conn.query(`
+      ALTER TABLE accounting_costs 
+      ADD FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE SET NULL
+    `);
+    console.log('   ✅ Foreign key a employees añadida');
+    
+    // ✅ PASO 3: Poblar los nuevos campos basado en datos existentes
+    await conn.query(`
+      UPDATE accounting_costs 
+      SET 
+        period_year = YEAR(date),
+        period_month = MONTH(date),
+        transaction_type = 'gasto'
+      WHERE period_year = 2024 AND period_month = 1
+    `);
+    console.log('   ✅ Campos poblados con datos existentes');
+    
+    // ✅ PASO 4: Crear índices para navegación rápida
+    await conn.query('CREATE INDEX idx_transaction_type ON accounting_costs(transaction_type)');
+    await conn.query('CREATE INDEX idx_period_year_month ON accounting_costs(period_year, period_month)');
+    await conn.query('CREATE INDEX idx_employee ON accounting_costs(employee_id)');
+    await conn.query(`CREATE INDEX idx_multidim_navigation ON accounting_costs(
+      cost_center_id, account_category_id, transaction_type, period_year, period_month
+    )`);
+    console.log('   ✅ Índices para navegación multidimensional creados');
+    
+    console.log('✅ Accounting_costs evolucionada exitosamente');
+    console.log('🎯 Ahora tu tabla soporta navegación tipo ecommerce');
+    
+  } catch (error) {
+    console.error('❌ Error evolving accounting_costs table:', error);
+    throw error;
+  }
+}
+
+async function createMultidimensionalView() {
+  try {
+    console.log('🔄 Creating multidimensional view...');
+    console.log('📋 Esta vista permitirá:');
+    console.log('   - Filtros súper rápidos sin JOINs complejos');
+    console.log('   - Navegación tipo ecommerce (productos, categorías, marcas)');
+    console.log('   - Breadcrumbs dinámicos');
+    console.log('   - Drill-down automático por dimensiones');
+    
+    await conn.query('DROP VIEW IF EXISTS multidimensional_costs_view');
+
+    await conn.query(`
+      CREATE VIEW multidimensional_costs_view AS
+      SELECT 
+        -- ✅ IDENTIFICADORES PRINCIPALES
+        ac.id as cost_id,
+        ac.transaction_type,
+        ac.cost_type,
+        ac.amount,
+        ac.description,
+        ac.date,
+        ac.period_year,
+        ac.period_month,
+        ac.status,
+        
+        -- ✅ DIMENSIÓN: Centro de Costo (como "Marca" en ecommerce)
+        cc.id as cost_center_id,
+        cc.code as cost_center_code,
+        cc.name as cost_center_name,
+        cc.type as cost_center_type,
+        cc.client as cost_center_client,
+        cc.status as cost_center_status,
+        
+        -- ✅ DIMENSIÓN: Categoría Contable (como "Categoría" en ecommerce)
+        cat.id as category_id,
+        cat.code as category_code,
+        cat.name as category_name,
+        cat.type as category_type,
+        cat.group_name as category_group,
+        
+        -- ✅ DIMENSIÓN: Proveedor (como "Tag" en ecommerce)
+        s.id as supplier_id,
+        s.tax_id as supplier_tax_id,
+        s.legal_name as supplier_name,
+        
+        -- ✅ DIMENSIÓN: Empleado (como "Tag" en ecommerce)
+        e.id as employee_id,
+        e.tax_id as employee_tax_id,
+        e.full_name as employee_name,
+        e.position as employee_position,
+        e.department as employee_department,
+        
+        -- ✅ DIMENSIÓN: Fuente del Documento (como "Variant" en ecommerce)
+        CASE 
+          WHEN ac.purchase_order_id IS NOT NULL THEN 'orden_compra'
+          WHEN ac.payroll_id IS NOT NULL THEN 'nomina'
+          WHEN ac.social_security_id IS NOT NULL THEN 'seguridad_social'
+          WHEN ac.invoice_id IS NOT NULL THEN 'factura'
+          ELSE 'manual'
+        END as source_type,
+        
+        COALESCE(
+          ac.purchase_order_id,
+          ac.payroll_id, 
+          ac.social_security_id,
+          ac.invoice_id
+        ) as source_id,
+        
+        -- ✅ CAMPOS CALCULADOS PARA NAVEGACIÓN
+        CONCAT(ac.period_year, '-', LPAD(ac.period_month, 2, '0')) as period_key,
+        CONCAT(cc.type, ': ', cc.name) as cost_center_display,
+        CONCAT(cat.group_name, ': ', cat.name) as category_display,
+        
+        -- ✅ TIMESTAMPS
+        ac.created_at,
+        ac.updated_at
+        
+      FROM accounting_costs ac
+      LEFT JOIN cost_centers cc ON ac.cost_center_id = cc.id
+      LEFT JOIN account_categories cat ON ac.account_category_id = cat.id
+      LEFT JOIN suppliers s ON ac.supplier_id = s.id
+      LEFT JOIN employees e ON ac.employee_id = e.id
+      WHERE ac.status = 'confirmado'
+    `);
+    
+    console.log('✅ Vista multidimensional creada');
+    console.log('🎯 Ahora puedes hacer consultas como:');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_type = "proyecto"');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE category_group = "Materiales"');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE employee_position = "Ingeniero"');
+    
+  } catch (error) {
+    console.error('❌ Error creating multidimensional view:', error);
+    throw error;
+  }
+}
+
+const empleadosFake = [
+  // DIRECCIÓN Y ADMINISTRACIÓN
+  {
+    tax_id: '12345678-9',
+    full_name: 'Carlos Alberto Mendoza Sánchez',
+    first_name: 'Carlos Alberto',
+    last_name: 'Mendoza Sánchez',
+    email: 'cmendoza@saer.cl',
+    phone: '+56912345678',
+    emergency_phone: '+56987654321',
+    position: 'Gerente General',
+    department: 'Dirección',
+    hire_date: '2020-01-15',
+    salary_base: 4500000
+  },
+  {
+    tax_id: '98765432-1',
+    full_name: 'María Elena Torres Rojas',
+    first_name: 'María Elena',
+    last_name: 'Torres Rojas',
+    email: 'mtorres@saer.cl',
+    phone: '+56923456789',
+    emergency_phone: '+56976543210',
+    position: 'Jefa de Administración y Finanzas',
+    department: 'Administración',
+    hire_date: '2020-03-01',
+    salary_base: 3200000
+  },
+  {
+    tax_id: '11223344-5',
+    full_name: 'Rodrigo Ignacio Vega López',
+    first_name: 'Rodrigo Ignacio',
+    last_name: 'Vega López',
+    email: 'rvega@saer.cl',
+    phone: '+56934567890',
+    emergency_phone: '+56965432109',
+    position: 'Contador',
+    department: 'Administración',
+    hire_date: '2021-02-15',
+    salary_base: 2100000
+  },
+  {
+    tax_id: '55667788-9',
+    full_name: 'Patricia Andrea Silva Muñoz',
+    first_name: 'Patricia Andrea',
+    last_name: 'Silva Muñoz',
+    email: 'psilva@saer.cl',
+    phone: '+56945678901',
+    emergency_phone: '+56954321098',
+    position: 'Asistente Administrativo',
+    department: 'Administración',
+    hire_date: '2022-01-10',
+    salary_base: 850000
+  },
+
+  // INGENIERÍA Y PROYECTOS
+  {
+    tax_id: '22334455-6',
+    full_name: 'Juan Carlos Pérez Morales',
+    first_name: 'Juan Carlos',
+    last_name: 'Pérez Morales',
+    email: 'jperez@saer.cl',
+    phone: '+56956789012',
+    emergency_phone: '+56943210987',
+    position: 'Jefe de Proyectos',
+    department: 'Ingeniería',
+    hire_date: '2019-11-20',
+    salary_base: 3800000
+  },
+  {
+    tax_id: '33445566-7',
+    full_name: 'Ana Sofía Ramírez Castro',
+    first_name: 'Ana Sofía',
+    last_name: 'Ramírez Castro',
+    email: 'aramirez@saer.cl',
+    phone: '+56967890123',
+    emergency_phone: '+56932109876',
+    position: 'Ingeniera Civil',
+    department: 'Ingeniería',
+    hire_date: '2021-04-01',
+    salary_base: 2800000
+  },
+  {
+    tax_id: '44556677-8',
+    full_name: 'Miguel Ángel Contreras Díaz',
+    first_name: 'Miguel Ángel',
+    last_name: 'Contreras Díaz',
+    email: 'mcontreras@saer.cl',
+    phone: '+56978901234',
+    emergency_phone: '+56921098765',
+    position: 'Ingeniero de Proyectos',
+    department: 'Ingeniería',
+    hire_date: '2021-08-15',
+    salary_base: 2500000
+  },
+  {
+    tax_id: '66778899-0',
+    full_name: 'Francisco Javier Herrera Pino',
+    first_name: 'Francisco Javier',
+    last_name: 'Herrera Pino',
+    email: 'fherrera@saer.cl',
+    phone: '+56989012345',
+    emergency_phone: '+56910987654',
+    position: 'Topógrafo',
+    department: 'Ingeniería',
+    hire_date: '2022-03-01',
+    salary_base: 1800000
+  },
+
+  // OPERACIONES Y TERRENO
+  {
+    tax_id: '77889900-1',
+    full_name: 'Roberto Alejandro González Fuentes',
+    first_name: 'Roberto Alejandro',
+    last_name: 'González Fuentes',
+    email: 'rgonzalez@saer.cl',
+    phone: '+56990123456',
+    emergency_phone: '+56998765432',
+    position: 'Jefe de Terreno',
+    department: 'Operaciones',
+    hire_date: '2020-05-15',
+    salary_base: 2200000
+  },
+  {
+    tax_id: '88990011-2',
+    full_name: 'Luis Fernando Moreno Soto',
+    first_name: 'Luis Fernando',
+    last_name: 'Moreno Soto',
+    email: 'lmoreno@saer.cl',
+    phone: '+56901234567',
+    emergency_phone: '+56987654321',
+    position: 'Capataz General',
+    department: 'Operaciones',
+    hire_date: '2019-09-01',
+    salary_base: 1600000
+  },
+  {
+    tax_id: '99001122-3',
+    full_name: 'Pedro Antonio Vargas Espinoza',
+    first_name: 'Pedro Antonio',
+    last_name: 'Vargas Espinoza',
+    email: 'pvargas@saer.cl',
+    phone: '+56912345670',
+    emergency_phone: '+56976543210',
+    position: 'Operador de Maquinaria',
+    department: 'Operaciones',
+    hire_date: '2021-06-01',
+    salary_base: 1200000
+  },
+  {
+    tax_id: '10203040-5',
+    full_name: 'Jorge Enrique Castillo Vera',
+    first_name: 'Jorge Enrique',
+    last_name: 'Castillo Vera',
+    email: 'jcastillo@saer.cl',
+    phone: '+56923456781',
+    emergency_phone: '+56965432109',
+    position: 'Maestro Soldador',
+    department: 'Operaciones',
+    hire_date: '2020-08-15',
+    salary_base: 1400000
+  },
+
+  // LOGÍSTICA Y BODEGA
+  {
+    tax_id: '20304050-6',
+    full_name: 'Carmen Gloria Navarro Rojas',
+    first_name: 'Carmen Gloria',
+    last_name: 'Navarro Rojas',
+    email: 'cnavarro@saer.cl',
+    phone: '+56934567892',
+    emergency_phone: '+56954321098',
+    position: 'Jefa de Bodega',
+    department: 'Logística',
+    hire_date: '2021-01-15',
+    salary_base: 1300000
+  },
+  {
+    tax_id: '30405060-7',
+    full_name: 'Andrés Felipe Cortés Miranda',
+    first_name: 'Andrés Felipe',
+    last_name: 'Cortés Miranda',
+    email: 'acortes@saer.cl',
+    phone: '+56945678903',
+    emergency_phone: '+56943210987',
+    position: 'Encargado de Compras',
+    department: 'Logística',
+    hire_date: '2022-02-01',
+    salary_base: 1100000
+  },
+  {
+    tax_id: '40506070-8',
+    full_name: 'Marcela Beatriz Jiménez Flores',
+    first_name: 'Marcela Beatriz',
+    last_name: 'Jiménez Flores',
+    email: 'mjimenez@saer.cl',
+    phone: '+56956789014',
+    emergency_phone: '+56932109876',
+    position: 'Asistente de Bodega',
+    department: 'Logística',
+    hire_date: '2022-09-15',
+    salary_base: 750000
+  },
+
+  // PREVENCIÓN DE RIESGOS Y CALIDAD
+  {
+    tax_id: '50607080-9',
+    full_name: 'Daniel Esteban Ruiz Paredes',
+    first_name: 'Daniel Esteban',
+    last_name: 'Ruiz Paredes',
+    email: 'druiz@saer.cl',
+    phone: '+56967890125',
+    emergency_phone: '+56921098765',
+    position: 'Prevencionista de Riesgos',
+    department: 'Prevención',
+    hire_date: '2020-12-01',
+    salary_base: 1900000
+  },
+  {
+    tax_id: '60708090-0',
+    full_name: 'Claudia Marcela Santander López',
+    first_name: 'Claudia Marcela',
+    last_name: 'Santander López',
+    email: 'csantander@saer.cl',
+    phone: '+56978901236',
+    emergency_phone: '+56910987654',
+    position: 'Inspectora de Calidad',
+    department: 'Calidad',
+    hire_date: '2021-07-01',
+    salary_base: 1700000
+  },
+
+  // RECURSOS HUMANOS
+  {
+    tax_id: '70809010-1',
+    full_name: 'Valentina Esperanza Osorio Carrasco',
+    first_name: 'Valentina Esperanza',
+    last_name: 'Osorio Carrasco',
+    email: 'vosorio@saer.cl',
+    phone: '+56989012347',
+    emergency_phone: '+56998765432',
+    position: 'Encargada de Recursos Humanos',
+    department: 'RRHH',
+    hire_date: '2020-10-15',
+    salary_base: 2000000
+  },
+
+  // OPERARIOS Y TÉCNICOS
+  {
+    tax_id: '80901020-2',
+    full_name: 'Cristian Mauricio Albornoz Silva',
+    first_name: 'Cristian Mauricio',
+    last_name: 'Albornoz Silva',
+    email: 'calbornoz@saer.cl',
+    phone: '+56990123458',
+    emergency_phone: '+56987654321',
+    position: 'Técnico Eléctrico',
+    department: 'Operaciones',
+    hire_date: '2021-11-01',
+    salary_base: 1100000
+  },
+  {
+    tax_id: '90102030-3',
+    full_name: 'Sebastián Ignacio Parra Mendoza',
+    first_name: 'Sebastián Ignacio',
+    last_name: 'Parra Mendoza',
+    email: 'sparra@saer.cl',
+    phone: '+56901234569',
+    emergency_phone: '+56976543210',
+    position: 'Operario de Construcción',
+    department: 'Operaciones',
+    hire_date: '2022-05-15',
+    salary_base: 900000
+  },
+  {
+    tax_id: '01020304-5',
+    full_name: 'Manuel Eduardo Reyes Gutiérrez',
+    first_name: 'Manuel Eduardo',
+    last_name: 'Reyes Gutiérrez',
+    email: 'mreyes@saer.cl',
+    phone: '+56912345681',
+    emergency_phone: '+56965432109',
+    position: 'Ayudante de Construcción',
+    department: 'Operaciones',
+    hire_date: '2023-01-10',
+    salary_base: 650000
+  }
+];
+
+async function insertRealEmployees(employeesData = null) {
+  try {
+    const [existingEmployees] = await conn.query('SELECT COUNT(*) as count FROM employees');
+    
+    if (existingEmployees[0].count > 0) {
+      console.log('ℹ️ Employees already exist, skipping insert');
+      return;
+    }
+
+    // Si no se proporcionan datos, usar los empleados fake
+    const dataToInsert = employeesData || empleadosFake;
+    
+    if (dataToInsert.length === 0) {
+      console.log('⏳ No employee data provided, skipping insert');
+      console.log('📝 Provide employee data to insertRealEmployees() function');
+      return;
+    }
+
+    // Obtener centro de costo administrativo por defecto
+    const [defaultCenter] = await conn.query(
+      'SELECT id FROM cost_centers WHERE type = "administrativo" ORDER BY id ASC LIMIT 1'
+    );
+    const defaultCostCenterId = defaultCenter[0]?.id;
+
+    console.log(`👥 Inserting ${dataToInsert.length} ${employeesData ? 'real' : 'fake'} employees...`);
+    
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const emp of dataToInsert) {
+      try {
+        await conn.query(`
+          INSERT INTO employees (
+            tax_id, full_name, first_name, last_name, email, phone, emergency_phone,
+            position, department, hire_date, default_cost_center_id, salary_base
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          emp.tax_id,
+          emp.full_name,
+          emp.first_name || emp.full_name.split(' ')[0],
+          emp.last_name || emp.full_name.split(' ').slice(1).join(' '),
+          emp.email || null,
+          emp.phone || null,
+          emp.emergency_phone || null,
+          emp.position || 'Empleado',
+          emp.department || 'General',
+          emp.hire_date || new Date().toISOString().split('T')[0],
+          defaultCostCenterId,
+          emp.salary_base || null
+        ]);
+        
+        console.log(`  ✅ ${emp.full_name} (${emp.tax_id}) - ${emp.position}`);
+        successCount++;
+      } catch (error) {
+        console.error(`  ❌ Error insertando ${emp.full_name}: ${error.message}`);
+        errorCount++;
+      }
+    }
+
+    console.log(`\n📊 Resumen de inserción de empleados:`);
+    console.log(`   ✅ Exitosos: ${successCount}`);
+    console.log(`   ❌ Errores: ${errorCount}`);
+    console.log(`   📄 Total procesados: ${dataToInsert.length}`);
+    
+    if (errorCount === 0) {
+      console.log('🎉 Todos los empleados fueron insertados exitosamente');
+    }
+
+  } catch (error) {
+    console.error('❌ Error inserting employees:', error);
+    throw error;
+  }
+}
+
+async function implementHito1Simplified(employeesData = []) {
+  console.log('\n🎯 IMPLEMENTANDO HITO 1 SIMPLIFICADO');
+  console.log('📋 Solo lo esencial: Employees + Evolución + Vista');
+  
+  try {
+    // Paso 1: Crear tabla de empleados
+    console.log('\n1️⃣ Creando tabla de empleados...');
+    await createEmployeesTable();
+    
+    // Paso 2: Evolucionar tabla accounting_costs
+    console.log('\n2️⃣ Evolucionando tabla accounting_costs...');
+    await evolveAccountingCostsTable();
+    
+    // Paso 3: Crear vista multidimensional
+    console.log('\n3️⃣ Creando vista multidimensional...');
+    await createMultidimensionalView();
+    
+    // Paso 4: Insertar empleados reales
+    console.log('\n4️⃣ Insertando empleados...');
+    await insertRealEmployees(employeesData);
+    
+    console.log('\n✅ HITO 1 SIMPLIFICADO COMPLETADO');
+    console.log('🎯 Funcionalidades implementadas:');
+    console.log('   ✅ Tabla employees robusta');
+    console.log('   ✅ accounting_costs evolucionada con navegación multidimensional');
+    console.log('   ✅ Vista multidimensional para filtros tipo ecommerce');
+    console.log('   ✅ Empleados reales insertados');
+    console.log('\n🚀 Tu sistema está listo para navegación multidimensional!');
+    
+  } catch (error) {
+    console.error('❌ Error en Hito 1 Simplificado:', error);
+    throw error;
+  }
+}
+
+async function createClientsTable() {
+  try {
+    const exists = await checkTableExists('clients');
+    if (exists) {
+      console.log('ℹ️ Clients table already exists');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS clients (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        tax_id VARCHAR(20) NOT NULL UNIQUE COMMENT 'RUT or Tax ID',
+        legal_name VARCHAR(255) NOT NULL COMMENT 'Legal business name',
+        commercial_name VARCHAR(255),
+        address TEXT,
+        phone VARCHAR(50),
+        email VARCHAR(100),
+        contact_person VARCHAR(100),
+        contact_phone VARCHAR(50),
+        contact_email VARCHAR(100),
+        client_type ENUM('publico', 'privado', 'mixto') DEFAULT 'privado',
+        industry VARCHAR(100),
+        active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_tax_id (tax_id),
+        INDEX idx_legal_name (legal_name)
+      )
+    `);
+    console.log('✅ Clients table created');
+  } catch (error) {
+    console.error('❌ Error creating clients table:', error);
+    throw error;
+  }
+}
+
+async function insertClients() {
+  try {
+    const [existingClients] = await conn.query('SELECT COUNT(*) as count FROM clients');
+    
+    if (existingClients[0].count > 0) {
+      console.log('ℹ️ Clients are already configured');
+      return;
+    }
+
+    await conn.query(`
+      INSERT INTO clients (tax_id, legal_name, commercial_name, client_type) VALUES
+      ('77777777-7', 'Ministerio de Obras Públicas', 'MOP', 'publico'),
+      ('88888888-8', 'Municipalidad de Valdivia', 'Muni Valdivia', 'publico'),
+      ('99999999-9', 'Corporación Nacional del Cobre de Chile', 'CODELCO', 'publico'),
+      ('11111111-1', 'Banco Santander Chile S.A.', 'Santander', 'privado')
+    `);
+    
+    console.log('✅ 4 clients inserted');
+  } catch (error) {
+    console.error('❌ Error inserting clients:', error);
+    throw error;
+  }
+}
+
 // Create suppliers table
 async function createSuppliersTable() {
   try {
@@ -412,6 +1079,7 @@ async function createPurchaseOrdersTable() {
         po_date DATE NOT NULL,
         cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Associated cost center',
         supplier_id BIGINT UNSIGNED,
+        supplier_name VARCHAR(255),
         account_category_id BIGINT UNSIGNED,
         description TEXT,
         notes TEXT COMMENT 'Additional notes or comments',
@@ -1235,6 +1903,7 @@ async function setup() {
     
     await createUsersTable(); // WITHOUT foreign keys yet
     await createCostCentersTable(); // MAIN TABLE
+    await createClientsTable();
     
     // ==========================================
     // STEP 2: ADD CROSS FOREIGN KEYS
@@ -1298,6 +1967,7 @@ async function setup() {
     await insertCostCenters();
     await insertSuppliers();
     await insertAccountingCostsExample();
+    await insertClients();
     
     // ==========================================
     // STEP 9: OPTIMIZATION
@@ -1313,6 +1983,8 @@ async function setup() {
     console.log('   ✅ Table/column names remain in English');
     console.log('   ✅ Only user roles keep English: admin, manager, user');
     console.log('   ✅ All VARCHAR status fields changed to ENUM with Spanish values');
+
+    await implementHito1Simplified(empleadosFake);
     
     await showSchemaStatus();
 

@@ -49,7 +49,7 @@ export default {
       // Crear hito
       const milestoneData = {
         ...req.body,
-        project_id: projectId
+        cost_center_id: projectId
       };
       
       const milestone = await milestoneModel.create(milestoneData);
@@ -126,7 +126,7 @@ export default {
       }
       
       // Verificar permisos de acceso al proyecto
-      const project = await projectModel.getById(milestone.project_id);
+      const project = await projectModel.getById(milestone.cost_center_id);
       
       if (req.user.role !== 'admin' && project.owner_id !== req.user.id) {
         return res.status(403).json({
@@ -176,7 +176,7 @@ export default {
       }
       
       // Verificar permisos de acceso
-      const project = await projectModel.getById(milestone.project_id);
+      const project = await projectModel.getById(milestone.cost_center_id);
       
       if (req.user.role !== 'admin' && project.owner_id !== req.user.id) {
         return res.status(403).json({
@@ -223,7 +223,7 @@ export default {
       }
       
       // Verificar permisos de acceso
-      const project = await projectModel.getById(milestone.project_id);
+      const project = await projectModel.getById(milestone.cost_center_id);
       
       if (req.user.role !== 'admin' && project.owner_id !== req.user.id) {
         return res.status(403).json({
@@ -267,7 +267,7 @@ export default {
       }
       
       // Verificar permisos de acceso
-      const project = await projectModel.getById(milestone.project_id);
+      const project = await projectModel.getById(milestone.cost_center_id);
       
       if (req.user.role !== 'admin' && project.owner_id !== req.user.id) {
         return res.status(403).json({

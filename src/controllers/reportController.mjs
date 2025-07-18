@@ -19,7 +19,7 @@ export default {
       const { projectId } = req.params;
       const { year = new Date().getFullYear() } = req.query;
       
-      // Verificar si el proyecto existe
+      // Verificar si el proyecto existe (ahora busca en cost_centers)
       const project = await projectModel.getById(projectId);
       
       if (!project) {
@@ -76,7 +76,7 @@ export default {
       }
       
       // Obtener lista de proyectos activos (en progreso)
-      filters.status = 'in_progress';
+      filters.status = 'en_progreso';
       const activeProjects = await projectModel.listProjects(filters, 1, 100);
       
       // Obtener progreso para cada proyecto activo
@@ -182,7 +182,7 @@ export default {
             daysRemaining,
             timeProgress
           },
-          progressMetrics: {
+          progressMetrics: {  
             milestonesProgress: progress.progressPercentage,
             budgetProgress: project.total_budget > 0 
               ? ((cashSummary.actual_expense || 0) / project.total_budget) * 100 

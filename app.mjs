@@ -14,6 +14,8 @@ import reportRoutes from './src/routes/reportRoutes.mjs';
 import previsionalRoutes from './src/routes/CC/previsionalRoutes.mjs';
 import remuneracionRoutes from './src/routes/CC/remuneracionRoutes.mjs';
 import ordenCompraRoutes from './src/routes/CC/ordenCompraRoutes.mjs';
+import multidimensionalRoutes from './src/routes/CC/multidimensionalRoutes.mjs';
+
 
 
 // Inicializar aplicación de Express
@@ -44,8 +46,8 @@ app.use((req, res, next) => {
 });
 
 // Rutas
-app.use(authRoutes);        // /api/auth/* - Autenticación y perfil personal
-app.use(userRoutes);        // ⭐ /api/users/* - Gestión administrativa de usuarios (SOLO ADMINS)
+app.use(authRoutes);
+app.use(userRoutes);
 app.use(projectRoutes);
 app.use(milestoneRoutes);
 app.use(cashFlowRoutes);
@@ -53,6 +55,7 @@ app.use(reportRoutes);
 app.use(previsionalRoutes);
 app.use(remuneracionRoutes);
 app.use(ordenCompraRoutes);
+app.use(multidimensionalRoutes);
 
 
 // Ruta de prueba para verificar que la API está funcionando

@@ -6,6 +6,26 @@ import { authenticate, authorize } from '../middleware/auth.mjs';
 const router = Router();
 
 /**
+ * Estados válidos para flujo de caja (inglés y español)
+ */
+const validCashFlowStates = [
+  // Estados en español (base de datos)
+  'presupuestado', 'real',
+  // Estados en inglés (frontend)
+  'forecast', 'actual', 'budget'
+];
+
+/**
+ * Tipos válidos para flujo de caja (inglés y español)
+ */
+const validCashFlowTypes = [
+  // Tipos en español (base de datos)
+  'ingreso', 'gasto', 'ambos',
+  // Tipos en inglés (frontend)
+  'income', 'expense', 'both'
+];
+
+/**
  * @route   GET /api/cash-flow/categories
  * @desc    Obtener categorías de flujo de caja
  * @access  Privado
@@ -31,7 +51,7 @@ router.post(
       .isLength({ min: 3, max: 100 }).withMessage('El nombre debe tener entre 3 y 100 caracteres'),
     body('type')
       .optional()
-      .isIn(['income', 'expense', 'both']).withMessage('Tipo inválido'),
+      .isIn(validCashFlowTypes).withMessage(`Tipo inválido. Tipos permitidos: ${validCashFlowTypes.join(', ')}`),
     body('parent_id').optional().isNumeric().withMessage('ID de categoría padre inválido'),
     body('active').optional().isBoolean().withMessage('Estado activo inválido')
   ],
@@ -48,8 +68,10 @@ router.put(
   authenticate,
   authorize('admin'),
   [
-    body('name').optional().isLength({ min: 3, max: 100 }).withMessage('El nombre debe tener entre 3 y 100 caracteres'),
-    body('type').optional().isIn(['income', 'expense', 'both']).withMessage('Tipo inválido'),
+    body('name').optional()
+      .isLength({ min: 3, max: 100 }).withMessage('El nombre debe tener entre 3 y 100 caracteres'),
+    body('type').optional()
+      .isIn(validCashFlowTypes).withMessage(`Tipo inválido. Tipos permitidos: ${validCashFlowTypes.join(', ')}`),
     body('parent_id').optional().isNumeric().withMessage('ID de categoría padre inválido'),
     body('active').optional().isBoolean().withMessage('Estado activo inválido')
   ],
@@ -90,7 +112,8 @@ router.post(
       .notEmpty().withMessage('El monto es obligatorio')
       .isNumeric().withMessage('Monto inválido')
       .custom(value => value >= 0).withMessage('El monto debe ser positivo'),
-    body('state').optional().isIn(['forecast', 'actual']).withMessage('Estado inválido'),
+    body('state').optional()
+      .isIn(validCashFlowStates).withMessage(`Estado inválido. Estados permitidos: ${validCashFlowStates.join(', ')}`),
     body('partner_id').optional().isNumeric().withMessage('ID de socio inválido'),
     body('notes').optional().isString().withMessage('Notas inválidas')
   ],
@@ -120,7 +143,8 @@ router.post(
       .notEmpty().withMessage('El monto es obligatorio')
       .isNumeric().withMessage('Monto inválido')
       .custom(value => value >= 0).withMessage('El monto debe ser positivo'),
-    body('state').optional().isIn(['forecast', 'actual']).withMessage('Estado inválido'),
+    body('state').optional()
+      .isIn(validCashFlowStates).withMessage(`Estado inválido. Estados permitidos: ${validCashFlowStates.join(', ')}`),
     body('partner_id').optional().isNumeric().withMessage('ID de socio inválido'),
     body('notes').optional().isString().withMessage('Notas inválidas')
   ],
@@ -136,12 +160,18 @@ router.put(
   '/api/cash-flow/lines/:id',
   authenticate,
   [
-    body('name').optional().isLength({ min: 3, max: 255 }).withMessage('El nombre debe tener entre 3 y 255 caracteres'),
+    body('name').optional()
+      .isLength({ min: 3, max: 255 }).withMessage('El nombre debe tener entre 3 y 255 caracteres'),
     body('category_id').optional().isNumeric().withMessage('ID de categoría inválido'),
     body('planned_date').optional().isDate().withMessage('Fecha planificada inválida'),
     body('actual_date').optional().isDate().withMessage('Fecha real inválida'),
-    body('amount').optional().isNumeric().withMessage('Monto inválido').custom(value => value >= 0).withMessage('El monto debe ser positivo'),
-    body('state').optional().isIn(['forecast', 'actual']).withMessage('Estado inválido'),
+    body('amount').optional()
+      .isNumeric().withMessage('Monto inválido')
+      .custom(value => value >= 0).withMessage('El monto debe ser positivo'),
+    body('state').optional()
+      .isIn(validCashFlowStates).withMessage(`Estado inválido. Estados permitidos: ${validCashFlowStates.join(', ')}`),
+    body('type').optional()
+      .isIn(validCashFlowTypes).withMessage(`Tipo inválido. Tipos permitidos: ${validCashFlowTypes.join(', ')}`),
     body('partner_id').optional().isNumeric().withMessage('ID de socio inválido'),
     body('notes').optional().isString().withMessage('Notas inválidas')
   ],

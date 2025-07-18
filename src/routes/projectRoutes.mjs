@@ -5,6 +5,9 @@ import { authenticate, authorize } from '../middleware/auth.mjs';
 
 const router = Router();
 
+// ✅ ESTADOS VÁLIDOS (solo español para la DB)
+const validStatuses = ['borrador', 'activo', 'en_progreso', 'suspendido', 'completado', 'cancelado'];
+
 /**
  * @route   POST /api/projects
  * @desc    Crear un nuevo proyecto
@@ -20,11 +23,21 @@ router.post(
     body('code')
       .notEmpty().withMessage('El código del proyecto es obligatorio')
       .isLength({ min: 2, max: 20 }).withMessage('El código debe tener entre 2 y 20 caracteres'),
+    // ✅ ACEPTAR AMBOS FORMATOS: camelCase Y snake_case
+    body('clientId').optional().isNumeric().withMessage('ID de cliente inválido'),
     body('client_id').optional().isNumeric().withMessage('ID de cliente inválido'),
-    body('status').optional().isIn(['draft', 'in_progress', 'completed', 'cancelled']).withMessage('Estado inválido'),
+    // ✅ SOLO ESPAÑOL PARA STATUS
+    body('status').optional()
+      .isIn(validStatuses).withMessage(`Estado inválido. Estados permitidos: ${validStatuses.join(', ')}`),
+    // ✅ FECHAS EN AMBOS FORMATOS
+    body('startDate').optional().isDate().withMessage('Fecha de inicio inválida'),
     body('start_date').optional().isDate().withMessage('Fecha de inicio inválida'),
+    body('expectedEndDate').optional().isDate().withMessage('Fecha de fin esperada inválida'),
     body('expected_end_date').optional().isDate().withMessage('Fecha de fin esperada inválida'),
+    // ✅ PRESUPUESTO EN AMBOS FORMATOS
+    body('totalBudget').optional().isNumeric().withMessage('Presupuesto inválido'),
     body('total_budget').optional().isNumeric().withMessage('Presupuesto inválido'),
+    body('budget').optional().isNumeric().withMessage('Presupuesto inválido'),
     body('description').optional().isString().withMessage('Descripción inválida'),
     body('location').optional().isString().withMessage('Ubicación inválida'),
     body('location_lat').optional().isNumeric().withMessage('Latitud inválida'),
@@ -66,12 +79,23 @@ router.put(
   [
     body('name').optional().isLength({ min: 3, max: 100 }).withMessage('El nombre debe tener entre 3 y 100 caracteres'),
     body('code').optional().isLength({ min: 2, max: 20 }).withMessage('El código debe tener entre 2 y 20 caracteres'),
+    // ✅ ACEPTAR AMBOS FORMATOS: camelCase Y snake_case
+    body('clientId').optional().isNumeric().withMessage('ID de cliente inválido'),
     body('client_id').optional().isNumeric().withMessage('ID de cliente inválido'),
-    body('status').optional().isIn(['draft', 'in_progress', 'completed', 'cancelled']).withMessage('Estado inválido'),
+    // ✅ SOLO ESPAÑOL PARA STATUS
+    body('status').optional()
+      .isIn(validStatuses).withMessage(`Estado inválido. Estados permitidos: ${validStatuses.join(', ')}`),
+    // ✅ FECHAS EN AMBOS FORMATOS
+    body('startDate').optional().isDate().withMessage('Fecha de inicio inválida'),
     body('start_date').optional().isDate().withMessage('Fecha de inicio inválida'),
+    body('expectedEndDate').optional().isDate().withMessage('Fecha de fin esperada inválida'),
     body('expected_end_date').optional().isDate().withMessage('Fecha de fin esperada inválida'),
+    body('actualEndDate').optional().isDate().withMessage('Fecha de fin real inválida'),
     body('actual_end_date').optional().isDate().withMessage('Fecha de fin real inválida'),
+    // ✅ PRESUPUESTO EN AMBOS FORMATOS
+    body('totalBudget').optional().isNumeric().withMessage('Presupuesto inválido'),
     body('total_budget').optional().isNumeric().withMessage('Presupuesto inválido'),
+    body('budget').optional().isNumeric().withMessage('Presupuesto inválido'),
     body('description').optional().isString().withMessage('Descripción inválida'),
     body('location').optional().isString().withMessage('Ubicación inválida'),
     body('location_lat').optional().isNumeric().withMessage('Latitud inválida'),
@@ -102,7 +126,8 @@ router.patch(
   [
     body('status')
       .notEmpty().withMessage('El estado es obligatorio')
-      .isIn(['draft', 'in_progress', 'completed', 'cancelled']).withMessage('Estado inválido')
+      // ✅ SOLO ESPAÑOL
+      .isIn(validStatuses).withMessage(`Estado inválido. Estados permitidos: ${validStatuses.join(', ')}`)
   ],
   projectController.updateProjectStatus
 );

@@ -51,7 +51,7 @@ export default {
       `SELECT u.id, u.name, u.email, u.role, u.position, u.company_id, 
               c.name as company_name, u.active, u.created_at, u.updated_at
        FROM users u
-       LEFT JOIN construction_projects c ON u.company_id = c.id
+       LEFT JOIN cost_centers c ON u.company_id = c.id
        WHERE u.id = ?`,
       [id]
     );
@@ -100,7 +100,7 @@ export default {
       `SELECT u.id, u.name, u.email, u.role, u.position, u.company_id, 
               c.name as company_name, u.active, u.created_at
        FROM users u
-       LEFT JOIN construction_projects c ON u.company_id = c.id
+       LEFT JOIN cost_centers c ON u.company_id = c.id
        ${whereClause}
        ORDER BY u.name
        LIMIT ? OFFSET ?`,
@@ -111,7 +111,7 @@ export default {
     const [countResult] = await pool.execute(
       `SELECT COUNT(*) as total 
        FROM users u
-       LEFT JOIN construction_projects c ON u.company_id = c.id
+       LEFT JOIN cost_centers c ON u.company_id = c.id
        ${whereClause}`,
       queryParams
     );

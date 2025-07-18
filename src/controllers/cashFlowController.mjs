@@ -193,7 +193,7 @@ export default {
       // Crear línea de ingreso
       const lineData = {
         ...req.body,
-        project_id: projectId,
+        cost_center_id: projectId,
         type: 'income'
       };
       
@@ -251,7 +251,7 @@ export default {
       // Crear línea de gasto
       const lineData = {
         ...req.body,
-        project_id: projectId,
+        cost_center_id: projectId,
         type: 'expense'
       };
       
@@ -301,7 +301,7 @@ export default {
       const line = lines[0];
       
       // Verificar permisos de acceso al proyecto
-      const project = await projectModel.getById(line.project_id);
+      const project = await projectModel.getById(line.cost_center_id);
       
       if (req.user.role !== 'admin' && project.owner_id !== req.user.id) {
         return res.status(403).json({
@@ -354,7 +354,7 @@ export default {
       const line = lines[0];
       
       // Verificar permisos de acceso al proyecto
-      const project = await projectModel.getById(line.project_id);
+      const project = await projectModel.getById(line.cost_center_id);
       
       if (req.user.role !== 'admin' && project.owner_id !== req.user.id) {
         return res.status(403).json({
