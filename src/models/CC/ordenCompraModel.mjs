@@ -297,6 +297,35 @@ async function getById(id) {
 }
 
 /**
+ * Extrae el código de proyecto del número de purchase order
+ * @param {string} poNumber - Número de PO (ej: "OC-038-117", "OC-001-399")
+ * @returns {string|null} - Código de proyecto (ej: "038", "001-0") o null
+ */
+function extractProjectCodeFromPO(poNumber) {
+  if (!poNumber || typeof poNumber !== 'string') {
+    return null;
+  }
+  
+  // Patrón: OC-XXX-YYY donde XXX es el código del proyecto
+  const match = poNumber.match(/^OC-(\d{3})-/);
+  
+  if (match) {
+    const projectCode = match[1]; // "038", "041", "039", "001"
+    
+    // Mapeo especial para código 001 (va a Oficina Central)
+    if (projectCode === '001') {
+      return '001-0'; // Oficina Central
+    }
+    
+    // Para otros códigos, usar directamente
+    return projectCode; // "038", "041", "039", etc.
+  }
+  
+  console.warn(`⚠️ No se pudo extraer código de proyecto de: ${poNumber}`);
+  return null;
+}
+
+/**
  * Creates a new purchase order
  */
 async function create(poData) {
@@ -338,6 +367,21 @@ async function create(poData) {
     
     // MAPEAR CÓDIGOS A IDs CON MANEJO DE CAMPOS REQUERIDOS NULL
     let costCenterId = poData.cost_center_id;
+    if (!costCenterId && poData.po_number) {
+      const projectCode = extractProjectCodeFromPO(poData.po_number);
+      if (projectCode) {
+        console.log(`🎯 Extracted project code "${projectCode}" from PO: ${poData.po_number}`);
+        try {
+          costCenterId = await getCostCenterIdByCode(projectCode);
+          if (costCenterId) {
+            console.log(`✅ Mapped to cost center ID: ${costCenterId}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error mapping project code "${projectCode}":`, error);
+        }
+      }
+    }
+    // Si hay cost_center_code explícito, usarlo
     if (!costCenterId && poData.cost_center_code) {
       try {
         costCenterId = await getCostCenterIdByCode(poData.cost_center_code);
@@ -345,7 +389,7 @@ async function create(poData) {
         console.error('❌ Error mapping cost center:', error);
       }
     }
-    
+        
     // SI NO SE ENCUENTRA COST CENTER, USAR UNO POR DEFECTO O CREAR UNO GENÉRICO
     if (!costCenterId) {
       console.warn('⚠️ No cost center found, trying default...');

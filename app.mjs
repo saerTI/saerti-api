@@ -15,7 +15,7 @@ import previsionalRoutes from './src/routes/CC/previsionalRoutes.mjs';
 import remuneracionRoutes from './src/routes/CC/remuneracionRoutes.mjs';
 import ordenCompraRoutes from './src/routes/CC/ordenCompraRoutes.mjs';
 import multidimensionalRoutes from './src/routes/CC/multidimensionalRoutes.mjs';
-
+import fixedCostsRoutes from './src/routes/CC/fixedCostsRoutes.mjs';
 
 
 // Inicializar aplicación de Express
@@ -56,6 +56,7 @@ app.use(previsionalRoutes);
 app.use(remuneracionRoutes);
 app.use(ordenCompraRoutes);
 app.use(multidimensionalRoutes);
+app.use(fixedCostsRoutes);
 
 
 // Ruta de prueba para verificar que la API está funcionando

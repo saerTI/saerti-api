@@ -478,17 +478,21 @@ async function evolveAccountingCostsTable() {
 
 async function createMultidimensionalView() {
   try {
-    console.log('🔄 Creating multidimensional view...');
+    console.log('🔄 Creating unified multidimensional view...');
     console.log('📋 Esta vista permitirá:');
     console.log('   - Filtros súper rápidos sin JOINs complejos');
     console.log('   - Navegación tipo ecommerce (productos, categorías, marcas)');
     console.log('   - Breadcrumbs dinámicos');
     console.log('   - Drill-down automático por dimensiones');
+    console.log('   - ✨ UNIFICA: accounting_costs + purchase_orders');
     
     await conn.query('DROP VIEW IF EXISTS multidimensional_costs_view');
 
     await conn.query(`
       CREATE VIEW multidimensional_costs_view AS
+      -- ==========================================
+      -- PARTE 1: ACCOUNTING COSTS (origen principal)
+      -- ==========================================
       SELECT 
         -- ✅ IDENTIFICADORES PRINCIPALES
         ac.id as cost_id,
@@ -520,6 +524,7 @@ async function createMultidimensionalView() {
         s.id as supplier_id,
         s.tax_id as supplier_tax_id,
         s.legal_name as supplier_name,
+        s.commercial_name as supplier_commercial_name,
         
         -- ✅ DIMENSIÓN: Empleado (como "Tag" en ecommerce)
         e.id as employee_id,
@@ -530,7 +535,7 @@ async function createMultidimensionalView() {
         
         -- ✅ DIMENSIÓN: Fuente del Documento (como "Variant" en ecommerce)
         CASE 
-          WHEN ac.purchase_order_id IS NOT NULL THEN 'orden_compra'
+          WHEN ac.purchase_order_id IS NOT NULL THEN 'orden_compra_ref'
           WHEN ac.payroll_id IS NOT NULL THEN 'nomina'
           WHEN ac.social_security_id IS NOT NULL THEN 'seguridad_social'
           WHEN ac.invoice_id IS NOT NULL THEN 'factura'
@@ -541,13 +546,20 @@ async function createMultidimensionalView() {
           ac.purchase_order_id,
           ac.payroll_id, 
           ac.social_security_id,
-          ac.invoice_id
+          ac.invoice_id,
+          ac.id
         ) as source_id,
         
         -- ✅ CAMPOS CALCULADOS PARA NAVEGACIÓN
         CONCAT(ac.period_year, '-', LPAD(ac.period_month, 2, '0')) as period_key,
         CONCAT(cc.type, ': ', cc.name) as cost_center_display,
         CONCAT(cat.group_name, ': ', cat.name) as category_display,
+        
+        -- ✅ CAMPOS ADICIONALES PARA DRILL-DOWN
+        ac.notes,
+        ac.reference_document,
+        NULL as po_number,
+        NULL as po_date,
         
         -- ✅ TIMESTAMPS
         ac.created_at,
@@ -559,16 +571,202 @@ async function createMultidimensionalView() {
       LEFT JOIN suppliers s ON ac.supplier_id = s.id
       LEFT JOIN employees e ON ac.employee_id = e.id
       WHERE ac.status = 'confirmado'
+
+      UNION ALL
+
+      -- ==========================================
+      -- PARTE 2: PURCHASE ORDERS (como gastos directos)
+      -- ==========================================
+      SELECT 
+        -- ✅ IDENTIFICADORES PRINCIPALES (mapeo desde purchase_orders)
+        po.id as cost_id,
+        'gasto' as transaction_type,
+        'real' as cost_type,
+        po.total as amount,
+        po.description,
+        po.po_date as date,
+        YEAR(po.po_date) as period_year,
+        MONTH(po.po_date) as period_month,
+        po.status,
+        
+        -- ✅ DIMENSIÓN: Centro de Costo
+        cc.id as cost_center_id,
+        cc.code as cost_center_code,
+        cc.name as cost_center_name,
+        cc.type as cost_center_type,
+        cc.client as cost_center_client,
+        cc.status as cost_center_status,
+        
+        -- ✅ DIMENSIÓN: Categoría Contable
+        cat.id as category_id,
+        cat.code as category_code,
+        cat.name as category_name,
+        cat.type as category_type,
+        cat.group_name as category_group,
+        
+        -- ✅ DIMENSIÓN: Proveedor (desde purchase_orders)
+        s.id as supplier_id,
+        s.tax_id as supplier_tax_id,
+        s.legal_name as supplier_name,
+        s.commercial_name as supplier_commercial_name,
+        
+        -- ✅ DIMENSIÓN: Empleado (NULL para purchase_orders)
+        NULL as employee_id,
+        NULL as employee_tax_id,
+        NULL as employee_name,
+        NULL as employee_position,
+        NULL as employee_department,
+        
+        -- ✅ FUENTE DEL DOCUMENTO
+        'orden_compra' as source_type,
+        po.id as source_id,
+        
+        -- ✅ CAMPOS PARA NAVEGACIÓN
+        CONCAT(YEAR(po.po_date), '-', LPAD(MONTH(po.po_date), 2, '0')) as period_key,
+        CONCAT(cc.type, ': ', cc.name) as cost_center_display,
+        CONCAT(COALESCE(cat.group_name, 'Sin Grupo'), ': ', COALESCE(cat.name, 'Sin Categoría')) as category_display,
+        
+        -- ✅ CAMPOS ADICIONALES ESPECÍFICOS DE PO
+        po.notes,
+        po.po_number as reference_document,
+        po.po_number,
+        po.po_date,
+        
+        -- ✅ TIMESTAMPS
+        po.created_at,
+        po.updated_at
+        
+      FROM purchase_orders po
+      LEFT JOIN cost_centers cc ON po.cost_center_id = cc.id
+      LEFT JOIN account_categories cat ON po.account_category_id = cat.id
+      LEFT JOIN suppliers s ON po.supplier_id = s.id
+      
+      ORDER BY date DESC, created_at DESC
     `);
     
-    console.log('✅ Vista multidimensional creada');
-    console.log('🎯 Ahora puedes hacer consultas como:');
+    console.log('✅ Vista multidimensional UNIFICADA creada');
+    console.log('🎯 Ahora incluye AMBAS fuentes:');
+    console.log('   📊 accounting_costs (source_type: manual, nomina, etc.)');
+    console.log('   📊 purchase_orders (source_type: orden_compra)');
+    console.log('');
+    console.log('🎯 Consultas de ejemplo:');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_type = "proyecto"');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE source_type = "orden_compra"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE category_group = "Materiales"');
-    console.log('   SELECT * FROM multidimensional_costs_view WHERE employee_position = "Ingeniero"');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_id = 2 AND category_id = 14');
     
   } catch (error) {
-    console.error('❌ Error creating multidimensional view:', error);
+    console.error('❌ Error creating unified multidimensional view:', error);
+    throw error;
+  }
+}
+
+async function createFixedCostsTable() {
+  try {
+    const exists = await checkTableExists('fixed_costs');
+    if (exists) {
+      console.log('ℹ️ Fixed_costs table already exists');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS fixed_costs (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL COMMENT 'Nombre del costo fijo',
+        description TEXT COMMENT 'Descripción detallada',
+        quota_value DECIMAL(15,2) NOT NULL COMMENT 'Valor de cada cuota',
+        quota_count INT NOT NULL COMMENT 'Número total de cuotas',
+        paid_quotas INT DEFAULT 0 COMMENT 'Cuotas pagadas hasta ahora',
+        start_date DATE NOT NULL COMMENT 'Fecha de inicio',
+        end_date DATE NOT NULL COMMENT 'Fecha de término',
+        payment_date DATE NOT NULL COMMENT 'Día de pago mensual',
+        next_payment_date DATE COMMENT 'Próxima fecha de pago calculada',
+        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Centro de costo/proyecto',
+        account_category_id BIGINT UNSIGNED COMMENT 'Categoría contable',
+        company_id BIGINT UNSIGNED NOT NULL DEFAULT 1,
+        state ENUM('draft', 'active', 'suspended', 'completed', 'cancelled') DEFAULT 'draft',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id),
+        FOREIGN KEY (account_category_id) REFERENCES account_categories(id),
+        INDEX idx_cost_center (cost_center_id),
+        INDEX idx_account_category (account_category_id),
+        INDEX idx_state (state),
+        INDEX idx_start_date (start_date),
+        INDEX idx_end_date (end_date),
+        INDEX idx_next_payment_date (next_payment_date),
+        INDEX idx_company (company_id)
+      )
+    `);
+    console.log('✅ Fixed_costs table created');
+  } catch (error) {
+    console.error('❌ Error creating fixed_costs table:', error);
+    throw error;
+  }
+}
+
+// Agregar datos de prueba (opcional)
+async function insertFixedCostsTestData() {
+  try {
+    // Verificar si ya hay datos
+    const [existingData] = await conn.query('SELECT COUNT(*) as count FROM fixed_costs');
+    if (existingData[0].count > 0) {
+      console.log('ℹ️ Fixed costs test data already exists');
+      return;
+    }
+
+    await conn.query(`
+      INSERT INTO fixed_costs (
+        name, description, quota_value, quota_count, paid_quotas,
+        start_date, end_date, payment_date, next_payment_date,
+        cost_center_id, account_category_id, state
+      ) VALUES 
+      (
+        'Arriendo Oficina Central',
+        'Arriendo mensual de oficina principal',
+        850000.00,
+        12,
+        3,
+        '2024-01-01',
+        '2024-12-31',
+        '2024-01-05',
+        '2024-04-05',
+        1,
+        1,
+        'active'
+      ),
+      (
+        'Leasing Equipos de Oficina',
+        'Arriendo de equipos informáticos y mobiliario',
+        450000.00,
+        24,
+        8,
+        '2023-06-01',
+        '2025-05-31',
+        '2023-06-15',
+        '2024-04-15',
+        1,
+        2,
+        'active'
+      ),
+      (
+        'Plan Celulares Empresa',
+        'Plan corporativo de telefonía móvil',
+        180000.00,
+        12,
+        2,
+        '2024-02-01',
+        '2025-01-31',
+        '2024-02-10',
+        '2024-04-10',
+        1,
+        3,
+        'active'
+      )
+    `);
+    console.log('✅ Fixed costs test data inserted');
+  } catch (error) {
+    console.error('❌ Error inserting fixed costs test data:', error);
     throw error;
   }
 }
@@ -1932,6 +2130,8 @@ async function setup() {
     await createPurchaseOrdersTable();
     await createInvoicesTable();
     await createInvoicePaymentsTable();
+    await createFixedCostsTable();
+
     
     // ==========================================
     // STEP 5: HUMAN RESOURCES
@@ -1968,7 +2168,7 @@ async function setup() {
     await insertSuppliers();
     await insertAccountingCostsExample();
     await insertClients();
-    
+    await insertFixedCostsTestData();
     // ==========================================
     // STEP 9: OPTIMIZATION
     // ==========================================
