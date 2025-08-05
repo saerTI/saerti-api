@@ -484,7 +484,7 @@ async function createMultidimensionalView() {
     console.log('   - Navegación tipo ecommerce (productos, categorías, marcas)');
     console.log('   - Breadcrumbs dinámicos');
     console.log('   - Drill-down automático por dimensiones');
-    console.log('   - ✨ UNIFICA: accounting_costs + purchase_orders');
+    console.log('   - ✨ UNIFICA: accounting_costs + purchase_orders + fixed_costs');
     
     await conn.query('DROP VIEW IF EXISTS multidimensional_costs_view');
 
@@ -640,20 +640,111 @@ async function createMultidimensionalView() {
       LEFT JOIN cost_centers cc ON po.cost_center_id = cc.id
       LEFT JOIN account_categories cat ON po.account_category_id = cat.id
       LEFT JOIN suppliers s ON po.supplier_id = s.id
+
+      UNION ALL
+
+      -- ==========================================
+      -- PARTE 3: FIXED COSTS (costos fijos periódicos)
+      -- ==========================================
+      SELECT
+        -- ✅ Generar IDs únicos para fixed_costs (añadir 100000 para evitar conflictos)
+        (fc.id + 100000) as cost_id,
+        'gasto' as transaction_type,
+        'real' as cost_type,
+        fc.quota_value as amount,
+        CONCAT('Costo Fijo: ', fc.name) as description,
+        
+        -- ✅ Usar next_payment_date o start_date como fecha
+        COALESCE(fc.next_payment_date, fc.start_date) as date,
+        YEAR(COALESCE(fc.next_payment_date, fc.start_date)) as period_year,
+        MONTH(COALESCE(fc.next_payment_date, fc.start_date)) as period_month,
+        
+        -- ✅ Mapear estado de fixed_costs a estados generales
+        CASE 
+          WHEN fc.state = 'active' THEN 'aprobado'
+          WHEN fc.state = 'completed' THEN 'pagado'
+          WHEN fc.state = 'suspended' THEN 'pendiente'
+          WHEN fc.state = 'cancelled' THEN 'rechazado'
+          ELSE 'borrador'
+        END as status,
+        
+        -- ✅ DIMENSIÓN: Centro de Costo
+        cc.id as cost_center_id,
+        cc.code as cost_center_code,
+        cc.name as cost_center_name,
+        cc.type as cost_center_type,
+        cc.client as cost_center_client,
+        cc.status as cost_center_status,
+        
+        -- ✅ DIMENSIÓN: Categoría Contable
+        cat.id as category_id,
+        cat.code as category_code,
+        cat.name as category_name,
+        cat.type as category_type,
+        cat.group_name as category_group,
+        
+        -- ✅ DIMENSIÓN: Proveedor (NULL para fixed_costs)
+        NULL as supplier_id,
+        NULL as supplier_tax_id,
+        NULL as supplier_name,
+        NULL as supplier_commercial_name,
+        
+        -- ✅ DIMENSIÓN: Empleado (NULL para fixed_costs)
+        NULL as employee_id,
+        NULL as employee_tax_id,
+        NULL as employee_name,
+        NULL as employee_position,
+        NULL as employee_department,
+        
+        -- ✅ FUENTE DEL DOCUMENTO
+        'costo_fijo' as source_type,
+        fc.id as source_id,
+        
+        -- ✅ CAMPOS PARA NAVEGACIÓN
+        CONCAT(YEAR(COALESCE(fc.next_payment_date, fc.start_date)), '-', 
+               LPAD(MONTH(COALESCE(fc.next_payment_date, fc.start_date)), 2, '0')) as period_key,
+        CONCAT(cc.type, ': ', cc.name) as cost_center_display,
+        CONCAT(COALESCE(cat.group_name, 'Sin Grupo'), ': ', COALESCE(cat.name, 'Sin Categoría')) as category_display,
+        
+        -- ✅ CAMPOS ADICIONALES ESPECÍFICOS DE FIXED COSTS
+        CONCAT('Cuotas: ', fc.paid_quotas, '/', fc.quota_count, ' - Vigente hasta: ', DATE_FORMAT(fc.end_date, '%Y-%m-%d')) as notes,
+        CONCAT('FC-', fc.id) as reference_document,
+        NULL as po_number,
+        NULL as po_date,
+        
+        -- ✅ TIMESTAMPS
+        fc.created_at,
+        fc.updated_at
+        
+      FROM fixed_costs fc
+      LEFT JOIN cost_centers cc ON fc.cost_center_id = cc.id
+      LEFT JOIN account_categories cat ON fc.account_category_id = cat.id
+      WHERE fc.state IN ('active', 'completed', 'suspended', 'draft')  -- Excluir solo cancelados
       
       ORDER BY date DESC, created_at DESC
     `);
     
     console.log('✅ Vista multidimensional UNIFICADA creada');
-    console.log('🎯 Ahora incluye AMBAS fuentes:');
+    console.log('🎯 Ahora incluye TRES fuentes:');
     console.log('   📊 accounting_costs (source_type: manual, nomina, etc.)');
     console.log('   📊 purchase_orders (source_type: orden_compra)');
+    console.log('   📊 fixed_costs (source_type: costo_fijo)');
     console.log('');
-    console.log('🎯 Consultas de ejemplo:');
+    console.log('🎯 Ejemplos de consultas:');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_type = "proyecto"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE source_type = "orden_compra"');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE source_type = "costo_fijo"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE category_group = "Materiales"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_id = 2 AND category_id = 14');
+    console.log('');
+    console.log('🎯 Fuentes disponibles por source_type:');
+    console.log('   - manual: Costos ingresados manualmente');
+    console.log('   - nomina: Costos de nómina/payroll');
+    console.log('   - seguridad_social: Cotizaciones previsionales');
+    console.log('   - factura: Costos vinculados a facturas');
+    console.log('   - orden_compra_ref: Accounting costs referenciando PO');
+    console.log('   - orden_compra: Purchase orders directas');
+    console.log('   - costo_fijo: Fixed costs periódicos');
     
   } catch (error) {
     console.error('❌ Error creating unified multidimensional view:', error);
