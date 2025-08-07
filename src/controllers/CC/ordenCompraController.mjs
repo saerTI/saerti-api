@@ -264,6 +264,7 @@ async function getPurchaseOrders(req, res, next) {
  */
 async function getPurchaseOrderById(req, res, next) {
   try {
+    console.log('🔍 Getting purchase order by ID:', req.params.id);
     const { id } = req.params;
     const purchaseOrder = await ordenCompraModel.getById(id);
     
@@ -295,11 +296,14 @@ async function getPurchaseOrderById(req, res, next) {
       categoria_name: purchaseOrder.category_name,
       supplier_name: purchaseOrder.supplier_name
     };
-    
-    res.json({
+
+
+    return res.json({
       success: true,
       data: transformedData
     });
+
+
   } catch (error) {
     next(error);
   }

@@ -194,6 +194,7 @@ async function createCostCentersTable() {
   }
 }
 
+
 // Add foreign keys to users after creating cost_centers
 async function addUsersForeignKeys() {
   try {
@@ -1304,6 +1305,7 @@ async function createPurchaseOrdersTable() {
     throw error;
   }
 }
+
 
 // Create invoices table (now references cost_centers)
 async function createInvoicesTable() {

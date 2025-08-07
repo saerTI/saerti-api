@@ -199,16 +199,26 @@ async function updateRemuneracion(req, res, next) {
   try {
     const { id } = req.params;
     
+    // Primero obtener la remuneración existente para preservar valores críticos
+    const existingRemuneracion = await remuneracionModel.getById(id);
+    if (!existingRemuneracion) {
+      return res.status(404).json({
+        success: false,
+        message: 'Remuneración no encontrada'
+      });
+    }
+    
     const remuneracionData = {
       employee_name: req.body.nombre || req.body.employee_name,
       employee_rut: req.body.rut || req.body.employee_rut,
       employee_position: req.body.cargo || req.body.employee_position,
       
-      // Mapear centro de costo
-      cost_center_id: req.body.costCenterId || req.body.cost_center_id,
+      // Mapear centro de costo - preservar el existente si no se proporciona uno nuevo
+      cost_center_id: req.body.costCenterId || req.body.cost_center_id || existingRemuneracion.cost_center_id,
       centro_costo_code: req.body.centroCosto || req.body.centroCostoCode,
       
-      type: req.body.tipo || req.body.type,
+      // Preservar el type existente si no se proporciona uno nuevo
+      type: req.body.tipo || req.body.type || existingRemuneracion.type,
       amount: req.body.montoTotal || req.body.amount || 
               (parseFloat(req.body.sueldoLiquido || req.body.net_salary || 0) + 
                parseFloat(req.body.anticipo || req.body.advance_payment || 0)),

@@ -280,10 +280,20 @@ async function update(id, remuneracionData) {
       costCenterId = await getCostCenterIdByCode(remuneracionData.centro_costo_code);
     }
     
+    // Validar que cost_center_id no sea null (requerido por la base de datos)
+    if (!costCenterId) {
+      throw new Error('Se requiere un cost_center_id válido para actualizar la remuneración');
+    }
+    
     // Mapear tipo si es necesario
     const mappedType = remuneracionData.type === 'REMUNERACION' ? 'remuneracion' : 
                       remuneracionData.type === 'ANTICIPO' ? 'anticipo' : 
                       remuneracionData.type?.toLowerCase();
+    
+    // Validar que type no sea null (requerido por la base de datos)
+    if (!mappedType) {
+      throw new Error('Se requiere un tipo válido para actualizar la remuneración');
+    }
     
     // Mapear estado si es necesario
     const mappedStatus = mapStatusToSpanish(remuneracionData.state || 'pending');
