@@ -8,7 +8,9 @@ import {
   drillDownCategory,
   getExecutiveSummary,
   getQuickStats,
-  getHealthCheck
+  getHealthCheck,
+  getCostsByPeriod,
+  debugCostsData
 } from '../../controllers/CC/multidimensionalController.mjs';
 
 const router = Router();
@@ -32,6 +34,21 @@ router.get('/api/costs/explore', authenticate, exploreCosts);
  * @example /api/costs/dimensions?transaction_type=gasto
  */
 router.get('/api/costs/dimensions', authenticate, getCostsDimensions);
+
+/**
+ * @route   GET /api/costs/by-period
+ * @desc    Datos de costos agrupados por categoría y período para tabla financiera
+ * @access  Privado
+ * @example /api/costs/by-period?period_type=monthly&year=2024&cost_center_id=123
+ */
+router.get('/api/costs/by-period', authenticate, getCostsByPeriod);
+
+/**
+ * @route   GET /api/costs/debug
+ * @desc    Debug: Verificar qué datos hay en cada tabla fuente
+ * @access  Privado
+ */
+router.get('/api/costs/debug', authenticate, debugCostsData);
 
 /**
  * @route   GET /api/costs/drill-down/cost-center/:id

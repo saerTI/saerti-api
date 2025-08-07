@@ -1,112 +1,249 @@
-# ConstructFlow - Sistema de Gestión de Proyectos de Construcción
+# SAER TI - Backend
 
-ConstructFlow es una plataforma de gestión especializada para proyectos de construcción que permite realizar seguimiento financiero detallado, monitorear flujos de caja y visualizar estados financieros de manera intuitiva.
+Sistema de gestión empresarial con seguimiento financiero, control de centros de costo y análisis multidimensional de datos empresariales.
 
-## Características
+## Descripción
 
-- **Gestión de Proyectos**: Creación, seguimiento y administración de proyectos de construcción
-- **Hitos de Proyecto**: Definición y seguimiento de hitos con fechas y montos asociados
-- **Flujo de Caja**: Registro detallado de ingresos y gastos con categorización
-- **Reportes Financieros**: Visualización de estados financieros y progreso de proyectos
-- **Sistema de Usuarios**: Autenticación y autorización con diferentes niveles de acceso
+SAER TI Backend es una API REST robusta construida con Node.js y Express que proporciona funcionalidades avanzadas de gestión empresarial incluyendo:
 
-## Requisitos
+- **Gestión de Usuarios y Autenticación**: Sistema completo de usuarios con JWT
+- **Centros de Costo**: Control y seguimiento de centros de costo empresariales
+- **Análisis Multidimensional**: Navegación y análisis de costos con múltiples dimensiones
+- **Reportes Financieros**: Generación de reportes detallados y consolidados
+- **API RESTful**: Endpoints bien estructurados para integración con frontend
 
-- Node.js (v14.x o superior)
-- MySQL (v8.0 o superior)
+## Requisitos del Sistema
+
+- **Node.js**: v18.x o superior (recomendado v20.x)
+- **MySQL**: v8.0 o superior
+- **npm**: v8.x o superior
 
 ## Instalación
 
-1. Clonar el repositorio:
-   ```
-   git clone https://github.com/tu-usuario/constructflow.git
-   cd constructflow
-   ```
+### 1. Clonar el Repositorio
 
-2. Instalar dependencias:
-   ```
-   npm install
-   ```
+```bash
+git clone https://github.com/saerTI/saer-backend.git
+cd saer-backend
+```
 
-3. Configurar variables de entorno:
-   - Crear un archivo `.env` basado en el ejemplo proporcionado
-   - Configurar las credenciales de la base de datos y demás parámetros
+### 2. Instalar Dependencias
 
-4. Configurar la base de datos:
-   ```
-   npm run setup
-   ```
-   Este comando creará las tablas necesarias y un usuario administrador inicial.
+```bash
+npm install
+```
 
-5. Iniciar el servidor:
-   ```
-   npm run dev   # Para ambiente de desarrollo
-   npm start     # Para ambiente de producción
-   ```
+### 3. Configuración de Variables de Entorno
+
+Crear un archivo `.env` en la raíz del proyecto con las siguientes variables:
+
+```env
+# Configuración del servidor
+PORT=3000
+NODE_ENV=development
+
+# Configuración de la base de datos
+DB_HOST=localhost
+DB_PORT=3306
+DB_USER=root
+DB_PASS=tu_contraseña_mysql
+DB_NAME=saer_ti
+DB_CONNECTION_LIMIT=10
+
+# Configuración JWT
+JWT_SECRET=tu_clave_secreta_jwt
+JWT_EXPIRES_IN=1d
+```
+
+### 4. Configurar la Base de Datos
+
+#### Opción A: Configuración Automática (Recomendado)
+
+```bash
+# Crear base de datos y tablas automáticamente
+npm run setup
+```
+
+#### Opción B: Configuración Forzada (Elimina datos existentes)
+
+```bash
+# ⚠️ CUIDADO: Elimina toda la base de datos existente
+npm run setup_db:force
+```
+
+### 5. Crear Usuario Administrador
+
+```bash
+# Crear usuario administrador inicial
+node scripts/seedAdmin.mjs
+```
+
+Credenciales por defecto del administrador:
+- **Email**: felipeslzar@gmail.com
+- **Contraseña**: 1234
+
+### 6. Iniciar el Servidor
+
+```bash
+# Modo desarrollo (con nodemon)
+npm run dev
+
+# Modo producción
+npm start
+```
+
+El servidor estará disponible en: `http://localhost:3000`
 
 ## Estructura del Proyecto
 
 ```
-constructflow/
-├── config/               # Configuración de la aplicación
-├── controllers/          # Controladores de la API
-├── middleware/           # Middleware personalizado
-├── models/               # Modelos de datos
-├── routes/               # Rutas de la API
-├── scripts/              # Scripts de utilidad
-├── utils/                # Funciones de utilidad
-├── app.mjs               # Configuración de Express
-├── server.mjs            # Punto de entrada de la aplicación
-└── package.json          # Dependencias y scripts
+saer-backend/
+├── src/
+│   ├── config/           # Configuración de BD y aplicación
+│   ├── controllers/      # Controladores de la API
+│   │   ├── CC/          # Controladores de Centros de Costo
+│   │   └── ...
+│   ├── middleware/       # Middleware personalizado
+│   ├── models/          # Modelos de datos
+│   ├── routes/          # Definición de rutas
+│   │   ├── CC/         # Rutas de Centros de Costo
+│   │   └── ...
+│   └── utils/           # Utilidades y helpers
+├── scripts/             # Scripts de configuración y mantenimiento
+├── .env.example         # Ejemplo de variables de entorno
+├── server.mjs           # Punto de entrada de la aplicación
+└── package.json         # Dependencias y scripts
 ```
 
-## Documentación de la API
+## API Endpoints
 
 ### Autenticación
 
-- `POST /api/auth/register` - Registra un nuevo usuario
-- `POST /api/auth/login` - Inicia sesión y devuelve tokens de autenticación
-- `GET /api/auth/profile` - Obtiene el perfil del usuario actual
-- `PUT /api/auth/profile` - Actualiza el perfil del usuario actual
+| Método | Endpoint | Descripción | Acceso |
+|--------|----------|-------------|---------|
+| POST | `/api/auth/register` | Registrar nuevo usuario | Público |
+| POST | `/api/auth/login` | Iniciar sesión | Público |
+| POST | `/api/auth/logout` | Cerrar sesión | Privado |
+| GET | `/api/auth/validate` | Validar token | Privado |
+| GET | `/api/auth/profile` | Obtener perfil | Privado |
+| PUT | `/api/auth/profile` | Actualizar perfil | Privado |
 
-### Proyectos
+### Usuarios
 
-- `GET /api/projects` - Lista todos los proyectos
-- `POST /api/projects` - Crea un nuevo proyecto
-- `GET /api/projects/:id` - Obtiene un proyecto específico
-- `PUT /api/projects/:id` - Actualiza un proyecto
-- `DELETE /api/projects/:id` - Elimina un proyecto
-- `PATCH /api/projects/:id/status` - Actualiza el estado de un proyecto
+| Método | Endpoint | Descripción | Acceso |
+|--------|----------|-------------|---------|
+| GET | `/api/users` | Listar usuarios | Admin |
+| POST | `/api/users` | Crear usuario | Admin |
+| GET | `/api/users/:id` | Obtener usuario | Admin |
+| PUT | `/api/users/:id` | Actualizar usuario | Admin |
+| DELETE | `/api/users/:id` | Eliminar usuario | Admin |
+| PATCH | `/api/users/:id/status` | Cambiar estado | Admin |
 
-### Hitos
+### Centros de Costo
 
-- `GET /api/projects/:projectId/milestones` - Lista los hitos de un proyecto
-- `POST /api/projects/:projectId/milestones` - Crea un nuevo hito
-- `PUT /api/milestones/:id` - Actualiza un hito
-- `DELETE /api/milestones/:id` - Elimina un hito
-- `PATCH /api/milestones/:id/complete` - Marca un hito como completado
+| Método | Endpoint | Descripción | Acceso |
+|--------|----------|-------------|---------|
+| GET | `/api/consolidada` | Vista consolidada | Privado |
+| GET | `/api/consolidada/dashboard` | Dashboard ejecutivo | Privado |
+| GET | `/api/consolidada/stats` | Estadísticas generales | Privado |
+| GET | `/api/consolidada/resumen/estados` | Resumen por estado | Privado |
 
-### Flujo de Caja
+### Análisis Multidimensional
 
-- `GET /api/projects/:projectId/cash-flow` - Obtiene el flujo de caja de un proyecto
-- `POST /api/projects/:projectId/incomes` - Registra un nuevo ingreso
-- `POST /api/projects/:projectId/expenses` - Registra un nuevo gasto
-- `GET /api/cash-flow/categories` - Lista las categorías de flujo de caja
-- `POST /api/cash-flow/categories` - Crea una nueva categoría
+| Método | Endpoint | Descripción | Acceso |
+|--------|----------|-------------|---------|
+| GET | `/api/costs/explore` | Navegación multidimensional | Privado |
+| GET | `/api/costs/dimensions` | Dimensiones disponibles | Privado |
+| GET | `/api/costs/by-period` | Costos por período | Privado |
+| GET | `/api/costs/health` | Estado del sistema | Privado |
 
 ### Reportes
 
-- `GET /api/reports/monthly-cash-flow/:projectId` - Reporte de flujo de caja mensual
-- `GET /api/reports/project-status` - Estado general de todos los proyectos
-- `GET /api/reports/project-detail/:projectId` - Reporte detallado de un proyecto
+| Método | Endpoint | Descripción | Acceso |
+|--------|----------|-------------|---------|
+| GET | `/api/reports/monthly-cash-flow/:projectId` | Flujo de caja mensual | Privado |
+| GET | `/api/reports/project-status` | Estado de proyectos | Privado |
+| GET | `/api/reports/project-detail/:projectId` | Detalle de proyecto | Privado |
 
-## Credenciales por defecto
+## Scripts Disponibles
 
-Después de ejecutar el script de configuración, se crea un usuario administrador con las siguientes credenciales:
+```bash
+# Iniciar servidor en producción
+npm start
 
-- **Email**: admin@constructflow.com
-- **Contraseña**: admin123
+# Iniciar servidor en desarrollo
+npm run dev
+
+# Configurar base de datos
+npm run setup
+
+# Configurar base de datos (forzado)
+npm run setup_db:force
+
+# Crear usuario administrador
+node scripts/seedAdmin.mjs
+```
+
+## Configuración de Base de Datos
+
+### Troubleshooting Común
+
+**Error de autenticación MySQL:**
+```sql
+-- Cambiar método de autenticación
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'tu_contraseña';
+FLUSH PRIVILEGES;
+```
+
+**Crear usuario específico para la aplicación:**
+```sql
+CREATE USER 'saer_user'@'localhost' IDENTIFIED WITH mysql_native_password BY 'tu_contraseña';
+GRANT ALL PRIVILEGES ON saer_ti.* TO 'saer_user'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+## Seguridad
+
+- **JWT Tokens**: Autenticación basada en tokens JWT
+- **Bcrypt**: Encriptación de contraseñas con salt
+- **Middleware de Autenticación**: Protección de rutas sensibles
+- **Validación de Datos**: Validación robusta con express-validator
+- **CORS**: Configuración de CORS para seguridad de frontend
+
+## Logging y Debugging
+
+El sistema incluye logging detallado para facilitar el debugging:
+
+```bash
+# Ver logs de conexión a BD
+npm run dev
+
+# Verificar estado del sistema multidimensional
+curl http://localhost:3000/api/costs/health
+```
+
+## Contribución
+
+1. Fork el proyecto
+2. Crear una rama para tu feature (`git checkout -b feature/nueva-funcionalidad`)
+3. Commit tus cambios (`git commit -am 'Agrega nueva funcionalidad'`)
+4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
+5. Crear un Pull Request
 
 ## Licencia
 
-Este proyecto está licenciado bajo la Licencia MIT - ver el archivo LICENSE para más detalles.
+Este proyecto está bajo la Licencia MIT. Ver el archivo [LICENSE.md](LICENSE.md) para más detalles.
+
+## Soporte
+
+Para reportar bugs o solicitar nuevas funcionalidades, por favor crear un issue en el repositorio de GitHub.
+
+## Changelog
+
+### v1.0.0
+- Implementación inicial del sistema
+- Sistema de autenticación JWT
+- Gestión de usuarios y roles
+- Centros de costo
+- Análisis multidimensional
+- API RESTful completa
