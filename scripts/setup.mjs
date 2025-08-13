@@ -1152,6 +1152,423 @@ const empleadosFake = [
   }
 ];
 
+async function createIncomesTable() {
+  try {
+    const exists = await checkTableExists('incomes');
+    if (exists) {
+      console.log('ℹ️ Incomes table already exists');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS incomes (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        
+        -- Document information
+        document_number VARCHAR(50) NOT NULL UNIQUE COMMENT 'Número de documento único',
+        ep_detail VARCHAR(255) DEFAULT NULL COMMENT 'Detalle EP (EP-01, EP-02, etc.)',
+        
+        -- Client information
+        client_name VARCHAR(255) NOT NULL COMMENT 'Nombre del mandante/cliente',
+        client_tax_id VARCHAR(20) NOT NULL COMMENT 'RUT del cliente',
+        
+        -- Financial amounts
+        ep_value DECIMAL(15,2) DEFAULT 0 COMMENT 'Valor EP base',
+        adjustments DECIMAL(15,2) DEFAULT 0 COMMENT 'Reajustes',
+        ep_total DECIMAL(15,2) NOT NULL COMMENT 'Total EP (valor + reajustes)',
+        fine DECIMAL(15,2) DEFAULT 0 COMMENT 'Multa',
+        retention DECIMAL(15,2) DEFAULT 0 COMMENT 'Retención',
+        advance DECIMAL(15,2) DEFAULT 0 COMMENT 'Anticipo',
+        exempt DECIMAL(15,2) DEFAULT 0 COMMENT 'Exento',
+        net_amount DECIMAL(15,2) DEFAULT 0 COMMENT 'Neto',
+        tax_amount DECIMAL(15,2) DEFAULT 0 COMMENT 'IVA',
+        total_amount DECIMAL(15,2) DEFAULT 0 COMMENT 'Total final',
+        
+        -- Payment information
+        factoring VARCHAR(100) DEFAULT NULL COMMENT 'Empresa de factoring',
+        payment_date DATE DEFAULT NULL COMMENT 'Fecha de pago',
+        factoring_due_date DATE DEFAULT NULL COMMENT 'Fecha vencimiento factoring',
+        
+        -- Status
+        state ENUM('borrador', 'activo', 'facturado', 'pagado', 'cancelado') DEFAULT 'activo',
+        payment_status ENUM('no_pagado', 'pago_parcial', 'pagado') DEFAULT 'no_pagado',
+        
+        -- Dates
+        date DATE NOT NULL COMMENT 'Fecha del documento',
+        
+        -- References
+        cost_center_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'Centro de costo asociado',
+        
+        -- Additional information
+        description TEXT DEFAULT NULL COMMENT 'Descripción adicional',
+        notes TEXT DEFAULT NULL COMMENT 'Notas y observaciones',
+        
+        -- Control
+        created_by BIGINT UNSIGNED DEFAULT NULL,
+        updated_by BIGINT UNSIGNED DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        -- Foreign Keys
+        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+        FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+        
+        -- Indexes
+        INDEX idx_document_number (document_number),
+        INDEX idx_client_tax_id (client_tax_id),
+        INDEX idx_client_name (client_name),
+        INDEX idx_date (date),
+        INDEX idx_state (state),
+        INDEX idx_payment_status (payment_status),
+        INDEX idx_cost_center (cost_center_id),
+        INDEX idx_ep_total (ep_total),
+        INDEX idx_factoring (factoring),
+        INDEX idx_payment_date (payment_date),
+        INDEX idx_created_at (created_at),
+        INDEX idx_client_date (client_tax_id, date),
+        INDEX idx_cost_center_date (cost_center_id, date)
+      )
+    `);
+    console.log('✅ Incomes table created');
+  } catch (error) {
+    console.error('❌ Error creating incomes table:', error);
+    throw error;
+  }
+}
+
+// Agregar esta función después de insertFixedCostsTestData()
+async function insertSampleIncomes() {
+  try {
+    console.log('📝 Inserting sample income data...');
+    
+    // Check if data already exists
+    const [existingData] = await conn.query('SELECT COUNT(*) as count FROM incomes');
+    if (existingData[0].count > 0) {
+      console.log('ℹ️ Sample income data already exists, skipping...');
+      return;
+    }
+    
+    // Get existing cost centers with their codes for mapping
+    const [costCenters] = await conn.query(`
+      SELECT id, code, name 
+      FROM cost_centers 
+      WHERE code IN ('038', '039', '040', '041', '042', '043', '044', '001-0', '001-3') 
+      ORDER BY code
+    `);
+    
+    // Create a mapping from project codes to cost center IDs
+    const codeToIdMap = {};
+    costCenters.forEach(center => {
+      codeToIdMap[center.code] = center.id;
+      console.log(`📋 Mapped code "${center.code}" -> ID ${center.id} (${center.name})`);
+    });
+    
+    // Function to get cost center ID by project code
+    const getCostCenterIdByCode = (projectCode) => {
+      return codeToIdMap[projectCode] || codeToIdMap['001-0'] || costCenters[0]?.id || null;
+    };
+    
+    const sampleIncomes = [
+      {
+        document_number: '360',
+        ep_detail: 'EP-11',
+        client_name: 'NUEVO COBRE S.A',
+        client_tax_id: '96801450-1',
+        ep_value: 82437693,
+        adjustments: 0,
+        ep_total: 82437693,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 69275372,
+        tax_amount: 13162321,
+        total_amount: 82437693,
+        factoring: 'TANNER',
+        payment_date: '2025-02-23',
+        factoring_due_date: '2025-03-24',
+        state: 'pagado',
+        payment_status: 'pagado',
+        date: '2025-01-24',
+        cost_center_id: getCostCenterIdByCode('038'), // Nuevo Cobre
+        description: 'Nuevo Cobre - EP-11',
+        notes: 'Pagada con mora'
+      },
+      {
+        document_number: '362',
+        ep_detail: 'EP-03',
+        client_name: 'MINISTERIO DE OBRAS PUBLICAS',
+        client_tax_id: '61202000-0',
+        ep_value: 224326347,
+        adjustments: 4037874,
+        ep_total: 228364221,
+        fine: 0,
+        retention: -7901362,
+        advance: 0,
+        exempt: 0,
+        net_amount: 185262907,
+        tax_amount: 35199952,
+        total_amount: 220462859,
+        factoring: null,
+        payment_date: '2025-02-26',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-01-27',
+        cost_center_id: getCostCenterIdByCode('040'), // Reumén Ruta T-641
+        description: 'Reumén Ruta T-641 - EP-03',
+        notes: 'Proyecto de ruta'
+      },
+      {
+        document_number: '363',
+        ep_detail: 'EP-09',
+        client_name: 'BHP EXPLORATION CHILE SPA',
+        client_tax_id: '76451649-4',
+        ep_value: 154640495,
+        adjustments: 0,
+        ep_total: 154640495,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 129949996,
+        tax_amount: 24690499,
+        total_amount: 154640495,
+        factoring: null,
+        payment_date: '2025-02-27',
+        factoring_due_date: null,
+        state: 'facturado',
+        payment_status: 'no_pagado',
+        date: '2025-01-28',
+        cost_center_id: getCostCenterIdByCode('039'), // Caritaya Norte
+        description: 'Caritaya Norte - EP-09',
+        notes: 'Proyecto minero'
+      },
+      {
+        document_number: '365',
+        ep_detail: 'EP-10',
+        client_name: 'BHP EXPLORATION CHILE SPA',
+        client_tax_id: '76451649-4',
+        ep_value: 150490083,
+        adjustments: 0,
+        ep_total: 150490083,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 126462255,
+        tax_amount: 24027828,
+        total_amount: 150490083,
+        factoring: null,
+        payment_date: '2025-03-22',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-02-20',
+        cost_center_id: getCostCenterIdByCode('039'), // Caritaya Norte
+        description: 'Caritaya Norte - EP-10',
+        notes: 'Continuación proyecto minero'
+      },
+      {
+        document_number: '366',
+        ep_detail: 'EP-12',
+        client_name: 'NUEVO COBRE S.A',
+        client_tax_id: '96801450-1',
+        ep_value: 71822305,
+        adjustments: 0,
+        ep_total: 71822305,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 60354878,
+        tax_amount: 11467427,
+        total_amount: 71822305,
+        factoring: null,
+        payment_date: '2025-03-27',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-02-25',
+        cost_center_id: getCostCenterIdByCode('038'), // Nuevo Cobre
+        description: 'Nuevo Cobre - EP-12',
+        notes: 'Segundo EP del año'
+      },
+      {
+        document_number: '367',
+        ep_detail: 'EP-04',
+        client_name: 'MINISTERIO DE OBRAS PUBLICAS',
+        client_tax_id: '61202000-0',
+        ep_value: 186902414,
+        adjustments: 5494931,
+        ep_total: 192397345,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 161678441,
+        tax_amount: 30718904,
+        total_amount: 192397345,
+        factoring: null,
+        payment_date: '2025-03-27',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-02-25',
+        cost_center_id: getCostCenterIdByCode('040'), // Reumén Ruta T-641
+        description: 'Reumén Ruta T-641 - EP-04',
+        notes: 'Continuación proyecto de ruta'
+      },
+      {
+        document_number: '369',
+        ep_detail: 'EP-02',
+        client_name: 'MINISTERIO DE OBRAS PUBLICAS',
+        client_tax_id: '61202000-0',
+        ep_value: 88993281,
+        adjustments: 3328349,
+        ep_total: 92321630,
+        fine: 0,
+        retention: -8899328,
+        advance: -14594898,
+        exempt: 0,
+        net_amount: 70102775,
+        tax_amount: 13319527,
+        total_amount: 83422302,
+        factoring: null,
+        payment_date: '2025-04-03',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-03-04',
+        cost_center_id: getCostCenterIdByCode('041'), // Seguridad Travesías
+        description: 'Seguridad Travesías - EP-02',
+        notes: 'Proyecto de seguridad vial con descuento por anticipo'
+      },
+      {
+        document_number: '377',
+        ep_detail: 'EP-01',
+        client_name: 'MINISTERIO DE OBRAS PUBLICAS',
+        client_tax_id: '61202000-0',
+        ep_value: 270392598,
+        adjustments: 7003168,
+        ep_total: 277395766,
+        fine: 0,
+        retention: -27039260,
+        advance: 0,
+        exempt: 0,
+        net_amount: 210383618,
+        tax_amount: 39972888,
+        total_amount: 250356506,
+        factoring: null,
+        payment_date: '2025-04-23',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-03-24',
+        cost_center_id: getCostCenterIdByCode('042'), // Variante Lanco
+        description: 'Variante Lanco - EP-01',
+        notes: 'Primer EP del proyecto Variante Lanco'
+      },
+      {
+        document_number: '388',
+        ep_detail: 'EP-01',
+        client_name: 'MINERA PLATA CARINA SPA',
+        client_tax_id: '76132103-K',
+        ep_value: 15277795,
+        adjustments: 0,
+        ep_total: 15277795,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 12838483,
+        tax_amount: 2439312,
+        total_amount: 15277795,
+        factoring: null,
+        payment_date: '2025-05-28',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-04-28',
+        cost_center_id: getCostCenterIdByCode('001-3'), // Plata Carina
+        description: 'Plata Carina - EP-01',
+        notes: 'Primer EP del proyecto minero Plata Carina'
+      },
+      {
+        document_number: '403',
+        ep_detail: 'Anticipo',
+        client_name: 'IZARRA INGENIEROS SPA',
+        client_tax_id: '77145363-5',
+        ep_value: 59500000,
+        adjustments: 0,
+        ep_total: 59500000,
+        fine: 0,
+        retention: 0,
+        advance: 0,
+        exempt: 0,
+        net_amount: 50000000,
+        tax_amount: 9500000,
+        total_amount: 59500000,
+        factoring: null,
+        payment_date: '2025-07-11',
+        factoring_due_date: null,
+        state: 'activo',
+        payment_status: 'no_pagado',
+        date: '2025-06-11',
+        cost_center_id: getCostCenterIdByCode('044'), // Emergencia Ruta A-13
+        description: 'Emergencia Ruta A-13 - Anticipo',
+        notes: 'Anticipo para proyecto de emergencia vial'
+      }
+    ];
+    
+    // Insert sample data with proper cost center mapping
+    let insertedCount = 0;
+    for (const income of sampleIncomes) {
+      try {
+        const fields = Object.keys(income).join(', ');
+        const placeholders = Object.keys(income).map(() => '?').join(', ');
+        const values = Object.values(income);
+        
+        await conn.query(
+          `INSERT INTO incomes (${fields}) VALUES (${placeholders})`,
+          values
+        );
+        insertedCount++;
+        
+        console.log(`✅ Inserted income ${income.document_number} -> Cost Center ID: ${income.cost_center_id}`);
+        
+      } catch (error) {
+        console.error(`❌ Error inserting income ${income.document_number}:`, error);
+      }
+    }
+    
+    console.log(`✅ Inserted ${insertedCount}/${sampleIncomes.length} sample income records`);
+    
+    // Show summary of mappings
+    console.log('\n📊 Cost Center Mappings Summary:');
+    const mappingSummary = {};
+    sampleIncomes.forEach(income => {
+      const centerId = income.cost_center_id;
+      const centerInfo = costCenters.find(c => c.id === centerId);
+      const centerName = centerInfo ? `${centerInfo.code} - ${centerInfo.name}` : 'Unknown';
+      
+      if (!mappingSummary[centerName]) {
+        mappingSummary[centerName] = 0;
+      }
+      mappingSummary[centerName]++;
+    });
+    
+    Object.entries(mappingSummary).forEach(([centerName, count]) => {
+      console.log(`   ${centerName}: ${count} ingresos`);
+    });
+    
+  } catch (error) {
+    console.error('❌ Error inserting sample income data:', error);
+    throw error;
+  }
+}
+
 async function insertRealEmployees(employeesData = null) {
   try {
     const [existingEmployees] = await conn.query('SELECT COUNT(*) as count FROM employees');
@@ -2224,6 +2641,7 @@ async function setup() {
     await createInvoicesTable();
     await createInvoicePaymentsTable();
     await createFixedCostsTable();
+    await createIncomesTable();
 
     
     // ==========================================
@@ -2262,6 +2680,8 @@ async function setup() {
     await insertAccountingCostsExample();
     await insertClients();
     await insertFixedCostsTestData();
+    await insertSampleIncomes();
+
     // ==========================================
     // STEP 9: OPTIMIZATION
     // ==========================================
@@ -2305,7 +2725,8 @@ async function showSchemaStatus() {
       'purchase_orders',
       'invoices',
       'suppliers',
-      'users'
+      'users',
+      'incomes'
     ];
     
     for (const table of tables) {
@@ -2326,6 +2747,7 @@ async function showSchemaStatus() {
     console.log('   ✅ accounting_costs.account_category_id → account_categories.id');
     console.log('   ✅ social_security.cost_center_id → cost_centers.id');
     console.log('   ✅ payroll.cost_center_id → cost_centers.id');
+    console.log('   ✅ incomes.cost_center_id → cost_centers.id');
     
   } catch (error) {
     console.error('Error showing schema status:', error);
