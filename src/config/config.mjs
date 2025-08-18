@@ -36,7 +36,35 @@ const config = {
   jwt: {
     secret: process.env.JWT_SECRET || 'default_secret_key',
     expiresIn: process.env.JWT_EXPIRES_IN || '1d',
+  },
+  // ✅ NUEVA CONFIGURACIÓN PARA CLAUDE
+  anthropic: {
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022', // ✅ MODELO CORRECTO
+    maxTokens: parseInt(process.env.CLAUDE_MAX_TOKENS || '2500', 10),
+    temperature: parseFloat(process.env.CLAUDE_TEMPERATURE || '0.3'),
+    // Configuración de rate limiting básica
+    dailyLimit: parseInt(process.env.BUDGET_ANALYSIS_DAILY_LIMIT || '10', 10)
   }
 };
+
+// ✅ VALIDACIÓN DE CONFIGURACIÓN CRÍTICA
+if (config.server.env === 'production') {
+  const requiredEnvVars = ['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_SECRET'];
+  const missingVars = requiredEnvVars.filter(varName => !process.env[varName]);
+  
+  if (missingVars.length > 0) {
+    console.error('❌ Variables de entorno faltantes:', missingVars);
+    process.exit(1);
+  }
+}
+
+// ✅ LOG DE CONFIGURACIÓN ANTHROPIC (sin exponer API key)
+console.log('Configuración Anthropic:', {
+  configured: !!config.anthropic.apiKey,
+  model: config.anthropic.model,
+  maxTokens: config.anthropic.maxTokens,
+  dailyLimit: config.anthropic.dailyLimit
+});
 
 export default config;

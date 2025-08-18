@@ -19,6 +19,8 @@ import fixedCostsRoutes from './src/routes/CC/fixedCostsRoutes.mjs';
 import empleadosRoutes from './src/routes/CC/empleadosRoutes.mjs';
 import incomeRoutes from './src/routes/incomeRoutes.mjs';
 
+import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
+
 
 
 // Inicializar aplicación de Express
@@ -62,6 +64,9 @@ app.use(multidimensionalRoutes);
 app.use(fixedCostsRoutes);
 app.use(empleadosRoutes);
 app.use(incomeRoutes);
+
+app.use(budgetSuggestionsRoutes);
+
 
 
 // Ruta de prueba para verificar que la API está funcionando
