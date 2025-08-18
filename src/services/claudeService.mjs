@@ -349,3 +349,466 @@ function formatCurrency(amount) {
     minimumFractionDigits: 0
   }).format(amount);
 }
+
+/**
+ * Genera análisis detallado de PDF usando múltiples consultas a Claude
+ * @param {Array} chunks - Chunks de texto del PDF
+ * @param {Object} config - Configuración del análisis
+ * @param {string} analysisId - ID único del análisis
+ * @returns {Promise<Object>} - Análisis consolidado
+ */
+export const generateDetailedPdfAnalysis = async (chunks, config, analysisId) => {
+  try {
+    console.log(`🤖 Iniciando análisis detallado PDF con ${chunks.length} chunks`);
+    
+    const results = [];
+    const consolidatedData = {
+      materials: [],
+      labor: [],
+      equipment: [],
+      providers: [],
+      sections: []
+    };
+
+    // Paso 1: Análisis general y estructura
+    console.log('📋 Fase 1: Análisis general del presupuesto');
+    const generalAnalysis = await analyzeGeneralStructure(chunks[0]?.content || '', config);
+    results.push({ type: 'general', data: generalAnalysis });
+
+    // Paso 2: Análisis de chunks específicos
+    console.log('🔍 Fase 2: Análisis detallado por secciones');
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      console.log(`📝 Procesando chunk ${i + 1}/${chunks.length} (${chunk.type})`);
+      
+      try {
+        const chunkAnalysis = await analyzeChunkContent(chunk, config, i + 1, chunks.length);
+        results.push({ 
+          type: chunk.type, 
+          chunkIndex: i + 1,
+          data: chunkAnalysis 
+        });
+
+        // Consolidar datos específicos
+        consolidateChunkData(chunkAnalysis, consolidatedData);
+        
+        // Pausa pequeña para evitar rate limiting
+        if (i < chunks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (chunkError) {
+        console.warn(`⚠️ Error procesando chunk ${i + 1}:`, chunkError.message);
+        results.push({ 
+          type: chunk.type, 
+          chunkIndex: i + 1,
+          error: chunkError.message 
+        });
+      }
+    }
+
+    // Paso 3: Consolidación final
+    console.log('🔄 Fase 3: Consolidación y síntesis final');
+    const finalConsolidation = await generateFinalConsolidation(
+      consolidatedData, 
+      results, 
+      config
+    );
+
+    // Construir respuesta final
+    const finalAnalysis = {
+      resumen_ejecutivo: finalConsolidation.executive_summary,
+      presupuesto_estimado: finalConsolidation.estimated_budget,
+      materiales_detallados: consolidatedData.materials,
+      mano_obra: consolidatedData.labor,
+      equipos_maquinaria: consolidatedData.equipment,
+      proveedores_chile: config.includeProviders ? consolidatedData.providers : [],
+      analisis_riesgos: finalConsolidation.risk_analysis,
+      recomendaciones: finalConsolidation.recommendations,
+      cronograma_estimado: finalConsolidation.timeline,
+      desglose_costos: finalConsolidation.cost_breakdown,
+      factores_regionales: finalConsolidation.regional_factors,
+      chunks_procesados: chunks.length,
+      chunks_exitosos: results.filter(r => !r.error).length,
+      confidence_score: calculatePdfConfidenceScore(results, consolidatedData)
+    };
+
+    console.log('✅ Análisis PDF completado exitosamente');
+    return finalAnalysis;
+
+  } catch (error) {
+    console.error('❌ Error en generateDetailedPdfAnalysis:', error);
+    throw new Error(`Error en análisis PDF: ${error.message}`);
+  }
+};
+
+/**
+ * Analiza la estructura general del presupuesto
+ */
+async function analyzeGeneralStructure(firstChunk, config) {
+  const prompt = `
+Analiza esta primera sección de un presupuesto de construcción chileno y identifica:
+
+TEXTO DEL PRESUPUESTO:
+${firstChunk.substring(0, 8000)}
+
+RESPONDE EN FORMATO JSON:
+{
+  "tipo_proyecto": "Tipo identificado",
+  "ubicacion_detectada": "Ubicación mencionada",
+  "estructura_presupuesto": {
+    "tiene_materiales": true/false,
+    "tiene_mano_obra": true/false,
+    "tiene_equipos": true/false,
+    "formato_detectado": "descripción del formato"
+  },
+  "presupuesto_total_estimado": "Monto si se encuentra",
+  "moneda_detectada": "CLP/USD/UF",
+  "observaciones_generales": ["lista de observaciones"]
+}
+
+Contexto del proyecto: ${config.projectType} en ${config.projectLocation}
+Incluir factores específicos del mercado chileno.`;
+
+  const response = await anthropic.messages.create({
+    model: config.anthropic?.model || "claude-3-5-sonnet-20241022",
+    max_tokens: 2000,
+    temperature: 0.3,
+    system: PDF_ANALYSIS_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  return parseJsonResponse(response.content[0].text, 'general_structure');
+}
+
+/**
+ * Analiza contenido específico de cada chunk
+ */
+async function analyzeChunkContent(chunk, config, chunkIndex, totalChunks) {
+  const sectionPrompts = {
+    'materials': generateMaterialsPrompt(chunk, config, chunkIndex, totalChunks),
+    'labor': generateLaborPrompt(chunk, config, chunkIndex, totalChunks),
+    'equipment': generateEquipmentPrompt(chunk, config, chunkIndex, totalChunks),
+    'general': generateGeneralChunkPrompt(chunk, config, chunkIndex, totalChunks)
+  };
+
+  const prompt = sectionPrompts[chunk.type] || sectionPrompts['general'];
+
+  const response = await anthropic.messages.create({
+    model: config.anthropic?.model || "claude-3-5-sonnet-20241022",
+    max_tokens: 3000,
+    temperature: 0.2,
+    system: PDF_ANALYSIS_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  return parseJsonResponse(response.content[0].text, `chunk_${chunkIndex}`);
+}
+
+/**
+ * Genera prompt especializado para materiales
+ */
+function generateMaterialsPrompt(chunk, config, chunkIndex, totalChunks) {
+  return `
+Analiza esta sección de MATERIALES de un presupuesto de construcción (Chunk ${chunkIndex}/${totalChunks}):
+
+TEXTO:
+${chunk.content}
+
+EXTRAER EN FORMATO JSON:
+{
+  "materiales": [
+    {
+      "item": "Nombre del material",
+      "descripcion": "Descripción completa",
+      "cantidad": número,
+      "unidad": "m2/m3/kg/unidades/etc",
+      "precio_unitario": número,
+      "subtotal": número,
+      "categoria": "hormigon/acero/madera/instalaciones/etc",
+      "especificaciones": "detalles técnicos",
+      "proveedor_sugerido": "si se menciona"
+    }
+  ],
+  "subtotal_seccion": número,
+  "observaciones": ["notas importantes"],
+  "proveedores_mencionados": [
+    {
+      "nombre": "Nombre del proveedor",
+      "contacto": "teléfono/email si disponible",
+      "especialidad": "tipo de materiales"
+    }
+  ]
+}
+
+IMPORTANTE:
+- Convertir todas las cantidades a números
+- Identificar correctamente las unidades de medida
+- Calcular subtotales si no están explícitos
+- Incluir solo materiales reales, no títulos de sección`;
+}
+
+/**
+ * Genera prompt especializado para mano de obra
+ */
+function generateLaborPrompt(chunk, config, chunkIndex, totalChunks) {
+  return `
+Analiza esta sección de MANO DE OBRA de un presupuesto (Chunk ${chunkIndex}/${totalChunks}):
+
+TEXTO:
+${chunk.content}
+
+EXTRAER EN FORMATO JSON:
+{
+  "mano_obra": [
+    {
+      "especialidad": "Albañil/Electricista/Plomero/etc",
+      "descripcion_trabajo": "Descripción de la actividad",
+      "cantidad_personas": número,
+      "horas_por_persona": número,
+      "horas_totales": número,
+      "tarifa_hora": número,
+      "tarifa_dia": número,
+      "subtotal": número,
+      "nivel_especialidad": "ayudante/oficial/maestro/jefe",
+      "region_aplicable": "si se especifica"
+    }
+  ],
+  "subtotal_mano_obra": número,
+  "observaciones": ["notas sobre rendimientos, condiciones"],
+  "factores_especiales": {
+    "trabajo_altura": true/false,
+    "condiciones_especiales": "descripción si aplica",
+    "horario_especial": "nocturno/festivo/etc"
+  }
+}
+
+CONTEXTO: Proyecto ${config.projectType} en ${config.projectLocation}`;
+}
+
+/**
+ * Genera prompt especializado para equipos
+ */
+function generateEquipmentPrompt(chunk, config, chunkIndex, totalChunks) {
+  return `
+Analiza esta sección de EQUIPOS/MAQUINARIA de un presupuesto (Chunk ${chunkIndex}/${totalChunks}):
+
+TEXTO:
+${chunk.content}
+
+EXTRAER EN FORMATO JSON:
+{
+  "equipos": [
+    {
+      "tipo_equipo": "Grúa/Excavadora/Mixer/etc",
+      "descripcion": "Especificaciones técnicas",
+      "tiempo_uso": "días/horas/semanas",
+      "tarifa_periodo": número,
+      "costo_transporte": número,
+      "costo_operador": número,
+      "costo_combustible": número,
+      "subtotal": número,
+      "categoria": "movimiento_tierras/elevacion/transporte/etc"
+    }
+  ],
+  "subtotal_equipos": número,
+  "observaciones": ["notas sobre disponibilidad, condiciones"],
+  "proveedores_equipos": [
+    {
+      "nombre": "Empresa de arriendo",
+      "contacto": "si disponible",
+      "especialidad": "tipo de equipos"
+    }
+  ]
+}`;
+}
+
+/**
+ * Genera prompt general para chunks no clasificados
+ */
+function generateGeneralChunkPrompt(chunk, config, chunkIndex, totalChunks) {
+  return `
+Analiza esta sección de un presupuesto de construcción (Chunk ${chunkIndex}/${totalChunks}):
+
+TEXTO:
+${chunk.content}
+
+Identifica y extrae cualquier información relevante:
+- Materiales y cantidades
+- Mano de obra y tarifas  
+- Equipos y costos
+- Proveedores mencionados
+- Subtotales parciales
+- Observaciones técnicas
+
+RESPONDER EN FORMATO JSON con la estructura más apropiada según el contenido encontrado.`;
+}
+
+/**
+ * Consolida datos de cada chunk analizado
+ */
+function consolidateChunkData(chunkAnalysis, consolidatedData) {
+  if (chunkAnalysis.materiales) {
+    consolidatedData.materials.push(...chunkAnalysis.materiales);
+  }
+  
+  if (chunkAnalysis.mano_obra) {
+    consolidatedData.labor.push(...chunkAnalysis.mano_obra);
+  }
+  
+  if (chunkAnalysis.equipos) {
+    consolidatedData.equipment.push(...chunkAnalysis.equipos);
+  }
+  
+  if (chunkAnalysis.proveedores_mencionados) {
+    consolidatedData.providers.push(...chunkAnalysis.proveedores_mencionados);
+  }
+}
+
+/**
+ * Genera consolidación y síntesis final
+ */
+async function generateFinalConsolidation(consolidatedData, results, config) {
+  const prompt = `
+Basándote en el análisis detallado de un presupuesto de construcción chileno, genera una síntesis final:
+
+DATOS CONSOLIDADOS:
+- Materiales encontrados: ${consolidatedData.materials.length}
+- Mano de obra: ${consolidatedData.labor.length}  
+- Equipos: ${consolidatedData.equipment.length}
+- Proveedores: ${consolidatedData.providers.length}
+
+MATERIALES PRINCIPALES:
+${JSON.stringify(consolidatedData.materials.slice(0, 10), null, 2)}
+
+MANO DE OBRA PRINCIPAL:
+${JSON.stringify(consolidatedData.labor.slice(0, 5), null, 2)}
+
+RESPONDE EN FORMATO JSON:
+{
+  "executive_summary": "Resumen ejecutivo del presupuesto en 3-4 líneas",
+  "estimated_budget": {
+    "total_clp": número,
+    "materials_percentage": número,
+    "labor_percentage": número,
+    "equipment_percentage": número,
+    "overhead_percentage": número
+  },
+  "cost_breakdown": {
+    "materiales": número,
+    "mano_obra": número,
+    "equipos": número,
+    "gastos_generales": número,
+    "utilidad": número,
+    "total": número
+  },
+  "risk_analysis": [
+    {
+      "factor": "descripción del riesgo",
+      "probability": "alta/media/baja",
+      "impact": "alto/medio/bajo",
+      "mitigation": "estrategia de mitigación"
+    }
+  ],
+  "recommendations": [
+    "Recomendación específica 1",
+    "Recomendación específica 2",
+    "Recomendación específica 3"
+  ],
+  "timeline": "Cronograma estimado en meses",
+  "regional_factors": {
+    "climate_impact": "Impacto climático en Chile",
+    "logistics": "Consideraciones logísticas",
+    "local_regulations": "Regulaciones aplicables",
+    "market_conditions": "Condiciones del mercado actual"
+  }
+}
+
+CONTEXTO: Proyecto ${config.projectType} en ${config.projectLocation}
+Considera factores específicos del mercado de construcción chileno.`;
+
+  const response = await anthropic.messages.create({
+    model: config.anthropic?.model || "claude-3-5-sonnet-20241022",
+    max_tokens: 4000,
+    temperature: 0.3,
+    system: PDF_ANALYSIS_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: prompt }]
+  });
+
+  return parseJsonResponse(response.content[0].text, 'final_consolidation');
+}
+
+/**
+ * Calcula score de confianza para análisis PDF
+ */
+function calculatePdfConfidenceScore(results, consolidatedData) {
+  let score = 50; // Base score
+  
+  // Agregar puntos por chunks procesados exitosamente
+  const successfulChunks = results.filter(r => !r.error).length;
+  const totalChunks = results.length;
+  score += (successfulChunks / totalChunks) * 30;
+  
+  // Agregar puntos por datos extraídos
+  if (consolidatedData.materials.length > 0) score += 10;
+  if (consolidatedData.labor.length > 0) score += 10;
+  if (consolidatedData.equipment.length > 0) score += 5;
+  if (consolidatedData.providers.length > 0) score += 5;
+  
+  return Math.min(Math.round(score), 100);
+}
+
+/**
+ * Parsea respuesta JSON con manejo de errores
+ */
+function parseJsonResponse(text, context) {
+  try {
+    // Buscar JSON en la respuesta
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      return JSON.parse(jsonMatch[0]);
+    }
+    
+    // Si no hay JSON válido, crear estructura básica
+    console.warn(`⚠️ No se pudo parsear JSON en ${context}, creando estructura básica`);
+    return {
+      raw_text: text,
+      parsing_error: true,
+      context: context
+    };
+  } catch (error) {
+    console.warn(`⚠️ Error parseando JSON en ${context}:`, error.message);
+    return {
+      raw_text: text,
+      parsing_error: true,
+      error: error.message,
+      context: context
+    };
+  }
+}
+
+// System prompt especializado para análisis de PDFs
+const PDF_ANALYSIS_SYSTEM_PROMPT = `
+Eres un experto analista de presupuestos de construcción especializado en el mercado chileno. 
+
+Tu trabajo es extraer información detallada y precisa de presupuestos de construcción, identificando:
+- Materiales con cantidades, unidades y precios
+- Mano de obra con especialidades, horas y tarifas
+- Equipos con costos de arriendo y operación
+- Proveedores chilenos mencionados
+- Factores regionales específicos de Chile
+
+IMPORTANTE:
+- Siempre responde en formato JSON válido
+- Convierte texto a números cuando sea apropiado
+- Mantén consistencia en unidades de medida
+- Identifica correctamente la moneda (CLP/UF/USD)
+- Considera factores del mercado chileno (IVA, regulaciones, costos logísticos)
+- Si un dato no está claro, usar null en lugar de inventar valores
+
+Para el mercado chileno considera:
+- Precios incluyen/excluyen IVA
+- Factores climáticos por región
+- Disponibilidad de mano de obra especializada
+- Costos de transporte según ubicación
+- Regulaciones locales aplicables
+`;
