@@ -1,5 +1,5 @@
 // src/services/pdfExtractionService.mjs
-// 🔥 VERSIÓN OPTIMIZADA PARA PDFs LARGOS CON CLAUDE DIRECTO
+// 🔥 VERSIÓN LIMPIA - SOLO FUNCIONES UTILIZADAS
 import config from '../config/config.mjs';
 import Anthropic from '@anthropic-ai/sdk';
 import { exec } from 'child_process';
@@ -31,7 +31,7 @@ console.log('🐧 Modo Linux: Usando herramientas del sistema para conversión P
 export class PdfExtractionService {
   
   /**
-   * 🔥 FUNCIÓN PRINCIPAL MEJORADA PARA PDFs LARGOS
+   * 🔥 FUNCIÓN PRINCIPAL - ÚNICA FUNCIÓN PÚBLICA NECESARIA
    */
   static async extractContent(buffer, fileName) {
     try {
@@ -63,7 +63,7 @@ export class PdfExtractionService {
   }
 
   /**
-   * 🔥 NUEVA: Análisis directo con Claude Vision para PDFs completos
+   * 🔥 ANÁLISIS DIRECTO CON CLAUDE VISION PARA PDFs COMPLETOS
    */
   static async analyzeWithClaudeVisionDirect(buffer, fileName, analysis, startTime) {
     try {
@@ -197,7 +197,7 @@ DOCUMENTO: ${fileName}
   }
 
   /**
-   * 🔥 NUEVA: Análisis por páginas para PDFs muy grandes (20+ páginas)
+   * 🔥 ANÁLISIS POR PÁGINAS PARA PDFs MUY GRANDES
    */
   static async analyzeByPages(buffer, fileName, analysis, startTime) {
     try {
@@ -268,7 +268,7 @@ DOCUMENTO: ${fileName}
   }
 
   /**
-   * Convierte PDF a imágenes por páginas
+   * CONVIERTE PDF A IMÁGENES POR PÁGINAS
    */
   static async convertToImagesByPages(buffer, fileName) {
     try {
@@ -291,7 +291,7 @@ DOCUMENTO: ${fileName}
           throw new Error('pdftoppm no disponible. Instale: sudo dnf install poppler-utils');
         }
         
-        // Convertir TODAS las páginas a imágenes (sin límite de páginas)
+        // Convertir TODAS las páginas a imágenes
         const command = `pdftoppm -png -r 150 "${tempPdfPath}" "${tempImagePrefix}"`;
         console.log('🔄 Convirtiendo todas las páginas:', command);
         
@@ -350,7 +350,7 @@ DOCUMENTO: ${fileName}
   }
 
   /**
-   * Analiza un batch de páginas con Claude
+   * ANALIZA UN BATCH DE PÁGINAS CON CLAUDE
    */
   static async analyzeBatchWithClaude(images, startPage, totalPages) {
     try {
@@ -427,7 +427,7 @@ CRÍTICO: Extrae TODOS los números, precios y cantidades con máxima precisión
   }
 
   /**
-   * Analiza tipo de PDF (mantener función original)
+   * ANALIZA TIPO DE PDF
    */
   static async analyzePdfType(buffer) {
     let textLength = 0;
@@ -459,165 +459,5 @@ CRÍTICO: Extrae TODOS los números, precios y cantidades con máxima precisión
       pdfType: textLength > 500 ? 'native_text' :
                textLength > 50 ? 'hybrid' : 'scanned'
     };
-  }
-
-  /**
-   * 🔥 OCR CORREGIDO - Usa config correctamente
-   */
-  static async performOCR(images, analysisConfig = {}) {
-    try {
-      if (!config.anthropic.apiKey) {
-        throw new Error('API key de Anthropic no configurada');
-      }
-
-      console.log(`📤 Enviando ${images.length} imágenes a Claude Vision...`);
-
-      const prompt = `
-Extrae TODO el texto visible de estas imágenes de un presupuesto de construcción chileno.
-
-RESPONDER EN JSON VÁLIDO:
-{
-  "extracted_text": "TEXTO COMPLETO PRESERVANDO FORMATO Y ESTRUCTURA",
-  "budget_items": [
-    {
-      "item": "descripción del item",
-      "cantidad": número,
-      "unidad": "unidad de medida",
-      "precio_unitario": número,
-      "subtotal": número,
-      "categoria": "categoria del item"
-    }
-  ],
-  "totals": {
-    "subtotal": número,
-    "iva": número,
-    "total": número
-  },
-  "metadata": {
-    "document_type": "presupuesto|cotizacion|especificacion",
-    "contractor": "nombre del contratista si aparece",
-    "project_name": "nombre del proyecto si aparece"
-  },
-  "confidence": número_entre_70_y_100
-}
-
-Analiza minuciosamente cada página y extrae TODOS los datos numéricos y descriptivos.
-`;
-
-      // 🔥 USAR CONFIG CORRECTO
-      const response = await anthropic.messages.create({
-        model: config.anthropic.model, // ✅ USA TU CONFIG
-        max_tokens: config.anthropic.maxTokens,
-        temperature: 0.1,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            ...images
-          ]
-        }]
-      });
-
-      console.log(`✅ Claude Vision completó el análisis`);
-      
-      const analysisText = response.content[0].text;
-      
-      // Parsear respuesta JSON
-      let parsedResult;
-      try {
-        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedResult = JSON.parse(jsonMatch[0]);
-          console.log(`📊 Datos extraídos: ${parsedResult.budget_items?.length || 0} items`);
-        } else {
-          throw new Error('No se encontró JSON en la respuesta');
-        }
-      } catch (parseError) {
-        console.warn('⚠️ Error parseando JSON, usando análisis como texto');
-        parsedResult = {
-          extracted_text: analysisText,
-          budget_items: [],
-          totals: {},
-          metadata: { document_type: 'unknown' },
-          confidence: 75,
-          parsing_error: true,
-          raw_response: analysisText
-        };
-      }
-
-      return {
-        ...parsedResult,
-        processing_info: {
-          model_used: config.anthropic.model, // ✅ USAR CONFIG
-          processing_time: new Date().toISOString(),
-          images_analyzed: images.length
-        }
-      };
-
-    } catch (error) {
-      console.error('❌ Error en Claude Vision:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Procesa PDF con texto nativo (mantener)
-   */
-  static async processNativeText(analysis, startTime) {
-    return {
-      content: analysis.extractedText,
-      extraction_method: 'pdf_text_native',
-      success: true,
-      confidence: 95,
-      processing_time_ms: Date.now() - startTime,
-      pdf_type: 'native_text',
-      source: 'pdf_parse_library'
-    };
-  }
-
-  /**
-   * Diagnóstico del sistema
-   */
-  static async diagnoseSystem() {
-    console.log('🔧 Diagnóstico del sistema...');
-    
-    const diagnosis = {
-      pdf_parse: !!pdfParse,
-      anthropic_configured: !!config.anthropic.apiKey,
-      anthropic_model: config.anthropic.model,
-      platform: process.platform,
-      tools: {},
-      temp_directory: './temp'
-    };
-    
-    // Verificar herramientas del sistema
-    const tools = ['pdftoppm', 'convert', 'gs'];
-    for (const tool of tools) {
-      try {
-        await execAsync(`which ${tool}`);
-        diagnosis.tools[tool] = true;
-        console.log(`✅ ${tool} disponible`);
-      } catch {
-        diagnosis.tools[tool] = false;
-        console.warn(`❌ ${tool} no encontrado`);
-      }
-    }
-    
-    // Verificar directorio temporal
-    try {
-      await fs.access('./temp');
-      diagnosis.temp_accessible = true;
-    } catch {
-      diagnosis.temp_accessible = false;
-      try {
-        await fs.mkdir('./temp', { recursive: true });
-        diagnosis.temp_accessible = true;
-        console.log('✅ Directorio temporal creado');
-      } catch (error) {
-        console.error('❌ No se pudo crear directorio temporal:', error);
-      }
-    }
-    
-    return diagnosis;
   }
 }

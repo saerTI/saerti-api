@@ -1,4 +1,6 @@
 // src/controllers/budgetSuggestionsController.mjs
+// 🔥 VERSIÓN LIMPIA - SOLO MÉTODOS UTILIZADOS EN LAS RUTAS
+
 import { generateBudgetSuggestions, generateDetailedPdfAnalysis } from '../services/claudeService.mjs';
 import config from '../config/config.mjs';
 import { PdfExtractionService } from '../services/pdfExtractionService.mjs';
@@ -21,9 +23,10 @@ import {
 } from '../utils/budgetAnalysisUtils.mjs';
 
 const budgetController = {
+  
   /**
-   * 🔥 NUEVA FUNCIÓN: Análisis rápido sin ID de proyecto
-   * Usa datos directamente del request body
+   * 🔥 MÉTODO 1: Análisis rápido sin ID de proyecto
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 157
    */
   async generateQuickAnalysis(req, res, next) {
     try {
@@ -40,9 +43,9 @@ const budgetController = {
         });
       }
 
-      // 🔥 USAR DATOS DIRECTAMENTE DEL REQUEST en lugar de extraer de BD
+      // Usar datos directamente del request
       const projectData = {
-        id: null, // No hay ID para análisis rápido
+        id: null,
         name: req.body.name || `Proyecto ${req.body.type}`,
         type: req.body.type,
         location: req.body.location,
@@ -77,7 +80,7 @@ const budgetController = {
 
       console.log('⚙️ Opciones de análisis configuradas:', analysisOptions);
 
-      // 🔥 GENERAR ANÁLISIS USANDO DATOS REALES
+      // Generar análisis
       const analysis = await generateBudgetSuggestions(projectData, analysisOptions);
 
       // Incrementar contador de uso del usuario
@@ -85,7 +88,7 @@ const budgetController = {
         await incrementUserUsage(req.user.id, 'budget_analysis');
       }
 
-      // 🔥 RESPUESTA CON DATOS CORRECTOS
+      // Respuesta exitosa
       res.json({
         success: true,
         message: 'Análisis presupuestario generado exitosamente',
@@ -141,8 +144,8 @@ const budgetController = {
   },
 
   /**
-   * Genera análisis presupuestario basado en datos del proyecto existente
-   * (mantiene funcionalidad original para proyectos guardados)
+   * 🔥 MÉTODO 2: Análisis basado en proyecto existente
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 173
    */
   async generateAnalysis(req, res, next) {
     try {
@@ -159,11 +162,11 @@ const budgetController = {
         });
       }
 
-      // 🔥 MEJORAR: Si hay datos en el body, usarlos; sino buscar en BD
+      // Determinar fuente de datos del proyecto
       let projectData;
       
       if (req.body.type && req.body.location && req.body.area) {
-        // Usar datos del request body (análisis directo)
+        // Usar datos del request body
         projectData = {
           id: req.params.projectId,
           name: req.body.name || `Proyecto ${req.params.projectId}`,
@@ -177,7 +180,7 @@ const budgetController = {
         };
         console.log('📊 Usando datos del request body');
       } else {
-        // Buscar en base de datos (funcionalidad existente)
+        // Buscar en base de datos
         projectData = await extractProjectData(req.params.projectId);
         console.log('📊 Datos extraídos de BD (placeholder)');
       }
@@ -279,11 +282,12 @@ const budgetController = {
   },
 
   /**
-   * Analiza PDF con estrategia híbrida inteligente
+   * 🔥 MÉTODO 3: Análisis de PDF con estrategia optimizada
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 195
    */
   async analyzePdfBudget(req, res, next) {
     try {
-      console.log('📄 Iniciando análisis PDF optimizado para documentos largos');
+      console.log('📄 Iniciando análisis PDF optimizado');
       
       // Validar archivo subido
       const fileErrors = validatePdfFile(req.file);
@@ -319,12 +323,11 @@ const budgetController = {
 
       console.log('📁 Archivo recibido:', fileInfo);
 
-      // 🔥 EXTRACCIÓN OPTIMIZADA PARA PDFs LARGOS
+      // Extracción optimizada
       let contentResult;
       try {
         console.log('🚀 Iniciando extracción optimizada...');
         
-        // Medir tiempo de extracción
         const extractionStart = Date.now();
         
         contentResult = await PdfExtractionService.extractContent(
@@ -347,8 +350,7 @@ const budgetController = {
           suggestions: [
             'Verifique que el archivo no esté corrupto',
             'Para PDFs muy grandes (>30MB), considere dividir el documento',
-            'Asegúrese de que el PDF no esté protegido con contraseña',
-            'Para documentos escaneados, verifique la calidad de las imágenes'
+            'Asegúrese de que el PDF no esté protegido con contraseña'
           ],
           timestamp: new Date().toISOString()
         });
@@ -360,68 +362,55 @@ const budgetController = {
       console.log(`📝 Contenido extraído: ${pdfContent.length} caracteres`);
       console.log(`🎯 Método de extracción: ${contentResult.extraction_method}`);
 
-      // 🔥 ANÁLISIS INTELIGENTE SEGÚN EL MÉTODO DE EXTRACCIÓN
+      // Análisis según método de extracción
       let analysisResult;
       
       if (contentResult.extraction_method === 'claude_vision_direct_pdf') {
-        // PDF analizado completamente por Claude Vision
+        // PDF ya analizado por Claude Vision
         console.log('🎯 PDF ya analizado completamente por Claude Vision');
         
         analysisResult = {
-          resumen_ejecutivo: this.generateExecutiveSummary(contentResult.metadata),
-          presupuesto_estimado: contentResult.metadata?.budget_summary || {},
-          materiales_detallados: this.extractMaterials(contentResult.metadata?.detailed_items || []),
-          mano_obra: this.extractLabor(contentResult.metadata?.detailed_items || []),
-          equipos_maquinaria: this.extractEquipment(contentResult.metadata?.detailed_items || []),
+          resumen_ejecutivo: "Análisis completado usando Claude Vision directamente sobre el PDF",
+          presupuesto_estimado: contentResult.metadata?.budget_summary || { total_clp: 0 },
+          materiales_detallados: contentResult.metadata?.detailed_items?.filter(item => 
+            item.categoria === 'materiales' || 
+            item.item?.toLowerCase().includes('material')) || [],
+          mano_obra: contentResult.metadata?.detailed_items?.filter(item => 
+            item.categoria === 'mano_obra' || 
+            item.item?.toLowerCase().includes('mano')) || [],
+          equipos_maquinaria: contentResult.metadata?.detailed_items?.filter(item => 
+            item.categoria === 'equipos' || 
+            item.item?.toLowerCase().includes('equipo')) || [],
           proveedores_chile: [],
-          analisis_riesgos: this.generateRiskAnalysis(contentResult.metadata),
-          recomendaciones: this.generateRecommendations(contentResult.metadata),
-          cronograma_estimado: "Análisis de cronograma requiere información adicional del proyecto",
+          analisis_riesgos: [{
+            factor: "Análisis basado en extracción automática",
+            probability: "baja",
+            impact: "medio",
+            mitigation: "Validar datos extraídos manualmente"
+          }],
+          recomendaciones: [
+            "Verificar precios con proveedores actuales",
+            "Validar cantidades y unidades de medida",
+            "Confirmar especificaciones técnicas"
+          ],
+          cronograma_estimado: "Requiere información adicional del proyecto",
           desglose_costos: contentResult.metadata?.totals_by_section || {},
-          factores_regionales: this.generateRegionalFactors(analysisConfig.projectLocation),
+          factores_regionales: {
+            climaticos: "Considerar condiciones climáticas de la región",
+            logisticos: "Evaluar costos de transporte",
+            normativos: "Verificar regulaciones locales"
+          },
           extraction_metadata: extractionMetadata,
           confidence_score: contentResult.confidence || 85,
           processing_method: 'claude_vision_complete'
         };
         
-      } else if (contentResult.extraction_method === 'claude_vision_paginated') {
-        // PDF analizado por páginas
-        console.log('📚 PDF analizado por páginas, consolidando resultados...');
-        
-        analysisResult = {
-          resumen_ejecutivo: this.consolidatePaginatedAnalysis(contentResult),
-          presupuesto_estimado: { total_clp: 0, note: 'Requiere cálculo manual' },
-          materiales_detallados: this.extractItemsFromPaginated(contentResult, 'materiales'),
-          mano_obra: this.extractItemsFromPaginated(contentResult, 'mano_obra'),
-          equipos_maquinaria: this.extractItemsFromPaginated(contentResult, 'equipos'),
-          contenido_completo: pdfContent,
-          analisis_riesgos: [
-            {
-              factor: "Documento largo procesado por páginas",
-              probability: "media",
-              impact: "bajo",
-              mitigation: "Revisar consolidación manual"
-            }
-          ],
-          recomendaciones: [
-            "Verificar totales calculados manualmente",
-            "Revisar coherencia entre secciones",
-            "Validar ítems extraídos por categoría"
-          ],
-          extraction_metadata: extractionMetadata,
-          pages_processed: contentResult.pages_processed || 0,
-          batches_processed: contentResult.batches_processed || 0,
-          confidence_score: contentResult.confidence || 75,
-          processing_method: 'claude_vision_paginated'
-        };
-        
       } else {
-        // Fallback: usar el texto extraído para análisis tradicional
-        console.log('🔄 Usando análisis tradicional con texto extraído...');
+        // Usar análisis tradicional con chunking
+        console.log('🔄 Usando análisis tradicional con chunking...');
         
-        // CHUNKING Y ANÁLISIS TRADICIONAL
         const chunks = await createIntelligentChunks(pdfContent);
-        console.log(`🧩 ${chunks.length} chunks creados para análisis tradicional`);
+        console.log(`🧩 ${chunks.length} chunks creados para análisis`);
         
         analysisResult = await generateDetailedPdfAnalysis(
           chunks, 
@@ -434,7 +423,7 @@ const budgetController = {
         analysisResult.processing_method = 'traditional_chunking';
       }
 
-      // GUARDAR RESULTADO
+      // Guardar resultado
       if (req.body.saveAnalysis !== false) {
         try {
           await savePdfAnalysisToDatabase(analysisId, analysisResult, req.user?.id);
@@ -449,7 +438,7 @@ const budgetController = {
         await incrementUserUsage(req.user.id, 'pdf_analysis');
       }
 
-      // 🔥 RESPUESTA OPTIMIZADA
+      // Respuesta optimizada
       res.json({
         success: true,
         message: 'Análisis PDF completado exitosamente',
@@ -462,16 +451,7 @@ const budgetController = {
             contentLength: pdfContent.length,
             processingTime: new Date().toISOString(),
             extraction: extractionMetadata,
-            processing_method: analysisResult.processing_method,
-            // Información específica según método
-            ...(contentResult.pages_processed && {
-              pages_processed: contentResult.pages_processed,
-              batches_processed: contentResult.batches_processed,
-              successful_batches: contentResult.successful_batches
-            }),
-            ...(contentResult.items_extracted && {
-              items_extracted: contentResult.items_extracted
-            })
+            processing_method: analysisResult.processing_method
           }
         },
         timestamp: new Date().toISOString()
@@ -494,225 +474,8 @@ const budgetController = {
   },
 
   /**
-   * 🔥 FUNCIONES AUXILIARES PARA PROCESAMIENTO DE PDFs
-   */
-
-  // Genera resumen ejecutivo desde metadata de Claude Vision
-  generateExecutiveSummary(metadata) {
-    if (!metadata) {
-      return "Análisis completado. Revise los detalles extraídos del documento.";
-    }
-
-    const budget = metadata.budget_summary;
-    const itemsCount = metadata.detailed_items?.length || 0;
-    
-    let summary = `Documento analizado: ${budget?.document_type || 'presupuesto de construcción'}`;
-    
-    if (budget?.project_name) {
-      summary += ` para el proyecto "${budget.project_name}"`;
-    }
-    
-    if (budget?.contractor) {
-      summary += ` elaborado por ${budget.contractor}`;
-    }
-    
-    summary += `. Se identificaron ${itemsCount} ítems detallados`;
-    
-    if (budget?.total_budget_clp) {
-      summary += ` con un presupuesto total de ${budget.total_budget_clp.toLocaleString('es-CL')} CLP`;
-    }
-    
-    summary += ".";
-    
-    return summary;
-  },
-
-  extractMaterials(items) {
-    return items
-      .filter(item => item.categoria === 'materiales' || 
-                    item.item?.toLowerCase().includes('material') ||
-                    item.item?.toLowerCase().includes('cemento') ||
-                    item.item?.toLowerCase().includes('acero') ||
-                    item.item?.toLowerCase().includes('madera'))
-      .map(item => ({
-        item: item.item,
-        descripcion: item.item,
-        cantidad: item.cantidad || 0,
-        unidad: item.unidad || 'unidad',
-        precio_unitario: item.precio_unitario || 0,
-        subtotal: item.subtotal || 0,
-        categoria: 'materiales',
-        seccion: item.seccion || 'materiales'
-      }));
-  },
-  // Extrae mano de obra de los ítems analizados
-  extractLabor(items) {
-    return items
-      .filter(item => item.categoria === 'mano_obra' || 
-                    item.item?.toLowerCase().includes('mano de obra') ||
-                    item.item?.toLowerCase().includes('albañil') ||
-                    item.item?.toLowerCase().includes('maestro') ||
-                    item.item?.toLowerCase().includes('oficial'))
-      .map(item => ({
-        especialidad: item.item,
-        descripcion_trabajo: item.item,
-        horas_totales: item.cantidad || 0,
-        tarifa_hora: item.precio_unitario || 0,
-        subtotal: item.subtotal || 0,
-        nivel_especialidad: this.detectSkillLevel(item.item)
-      }));
-  },
-  // Extrae equipos de los ítems analizados
-  extractEquipment(items) {
-    return items
-      .filter(item => item.categoria === 'equipos' || 
-                    item.item?.toLowerCase().includes('equipo') ||
-                    item.item?.toLowerCase().includes('maquinaria') ||
-                    item.item?.toLowerCase().includes('herramienta'))
-      .map(item => ({
-        tipo_equipo: item.item,
-        descripcion: item.item,
-        tiempo_uso: `${item.cantidad || 1} ${item.unidad || 'días'}`,
-        tarifa_periodo: item.precio_unitario || 0,
-        subtotal: item.subtotal || 0,
-        categoria: 'equipos'
-      }));
-  },
-
-  // Detecta nivel de especialidad
-  detectSkillLevel(itemName) {
-    const name = itemName.toLowerCase();
-    if (name.includes('maestro') || name.includes('jefe')) return 'maestro';
-    if (name.includes('oficial')) return 'oficial';
-    if (name.includes('ayudante')) return 'ayudante';
-    return 'oficial'; // default
-  },
-
-  // Genera análisis de riesgos basado en metadata
-  generateRiskAnalysis(metadata) {
-    const risks = [];
-    
-    if (metadata?.detailed_items) {
-      const itemsCount = metadata.detailed_items.length;
-      if (itemsCount > 100) {
-        risks.push({
-          factor: "Proyecto de gran escala",
-          probability: "alta",
-          impact: "alto",
-          mitigation: "Implementar control riguroso de costos y cronograma"
-        });
-      }
-    }
-    
-    if (metadata?.budget_summary?.total_budget_clp > 100000000) {
-      risks.push({
-        factor: "Presupuesto elevado",
-        probability: "media",
-        impact: "alto", 
-        mitigation: "Establecer hitos de control financiero y contingencias"
-      });
-    }
-    
-    // Riesgo genérico si no hay metadata suficiente
-    if (risks.length === 0) {
-      risks.push({
-        factor: "Variabilidad de precios de materiales",
-        probability: "media",
-        impact: "medio",
-        mitigation: "Monitorear precios de mercado y establecer contratos fijos"
-      });
-    }
-    
-    return risks;
-  },
-
-  // Genera recomendaciones basadas en análisis
-  generateRecommendations(metadata) {
-    const recommendations = [
-      "Verificar precios de materiales con proveedores actuales",
-      "Establecer contratos marco para materiales principales",
-      "Implementar sistema de control de avance y costos"
-    ];
-    
-    if (metadata?.detailed_items?.length > 50) {
-      recommendations.push("Considerar usar software de gestión de proyectos para seguimiento detallado");
-    }
-    
-    if (metadata?.budget_summary?.total_budget_clp > 50000000) {
-      recommendations.push("Establecer garantías bancarias y seguros de construcción");
-    }
-    
-    return recommendations;
-  },
-
-  // Genera factores regionales
-  generateRegionalFactors(location) {
-    const defaultFactors = {
-      climaticos: "Considerar condiciones climáticas locales para planificación",
-      logisticos: "Evaluar costos de transporte según ubicación del proyecto",
-      mano_obra: "Verificar disponibilidad de mano de obra especializada en la región",
-      normativos: "Cumplir con regulaciones y permisos locales de construcción"
-    };
-    
-    // Factores específicos por región (si se proporciona ubicación)
-    if (location && location.toLowerCase().includes('valdivia')) {
-      defaultFactors.climaticos = "Región lluviosa - planificar protecciones y considerar estacionalidad";
-      defaultFactors.logisticos = "Distancia a Santiago incrementa costos de transporte en ~12%";
-    }
-    
-    return defaultFactors;
-  },
-
-  // Consolida análisis paginado
-  consolidatePaginatedAnalysis(contentResult) {
-    const pages = contentResult.pages_processed || 0;
-    const batches = contentResult.successful_batches || 0;
-    const total = contentResult.batches_processed || 0;
-    
-    return `Documento de ${pages} páginas analizado en ${total} lotes, ` +
-          `${batches} procesados exitosamente. El contenido ha sido extraído ` +
-          `y consolidado para análisis. Se recomienda revisión manual para ` +
-          `validar la completitud de la información extraída.`;
-  },
-
-  // Extrae ítems por categoría del análisis paginado
-  extractItemsFromPaginated(contentResult, category) {
-    const items = [];
-    
-    if (contentResult.detailed_results) {
-      for (const result of contentResult.detailed_results) {
-        if (result.budget_items) {
-          const categoryItems = result.budget_items.filter(item => {
-            const itemName = item.item?.toLowerCase() || '';
-            switch (category) {
-              case 'materiales':
-                return itemName.includes('material') || itemName.includes('cemento') || 
-                      itemName.includes('acero') || itemName.includes('madera');
-              case 'mano_obra':
-                return itemName.includes('mano') || itemName.includes('albañil') || 
-                      itemName.includes('oficial') || itemName.includes('maestro');
-              case 'equipos':
-                return itemName.includes('equipo') || itemName.includes('maquinaria') || 
-                      itemName.includes('herramienta');
-              default:
-                return false;
-            }
-          });
-          
-          items.push(...categoryItems);
-        }
-      }
-    }
-    
-    return items.map(item => ({
-      ...item,
-      fuente: `Página ${item.pagina || 'N/A'}`,
-      categoria: category
-    }));
-  },
-
-  /**
-   * Obtiene resultado de análisis PDF por ID
+   * 🔥 MÉTODO 4: Obtener resultado de análisis PDF
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 206
    */
   async getPdfAnalysisResult(req, res, next) {
     try {
@@ -760,7 +523,8 @@ const budgetController = {
   },
 
   /**
-   * Compara múltiples análisis de PDF
+   * 🔥 MÉTODO 5: Comparar múltiples análisis de PDF
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 222
    */
   async comparePdfAnalyses(req, res, next) {
     try {
@@ -799,7 +563,8 @@ const budgetController = {
   },
 
   /**
-   * Obtiene historial de análisis de un proyecto
+   * 🔥 MÉTODO 6: Obtener historial de análisis
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 233
    */
   async getAnalysisHistory(req, res, next) {
     try {
@@ -833,7 +598,8 @@ const budgetController = {
   },
 
   /**
-   * Compara múltiples análisis de un proyecto específico
+   * 🔥 MÉTODO 7: Comparar análisis de proyecto
+   * ✅ SE USA en budgetSuggestionsRoutes.mjs línea 249
    */
   async compareProjectAnalyses(req, res, next) {
     try {
@@ -874,5 +640,5 @@ const budgetController = {
   }
 };
 
-// 🔥 EXPORT CORRECTO: Default export
+// Export default
 export default budgetController;

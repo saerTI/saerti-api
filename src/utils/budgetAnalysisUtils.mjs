@@ -1,11 +1,13 @@
 // src/utils/budgetAnalysisUtils.mjs
+// 🔥 VERSIÓN LIMPIA - SOLO FUNCIONES UTILIZADAS
 
-// ========================================
-// 🔧 FUNCIONES DE EXTRACCIÓN Y VALIDACIÓN
-// ========================================
+// ====================================================================
+// 🔧 FUNCIONES DE EXTRACCIÓN Y VALIDACIÓN (TODAS SE USAN)
+// ====================================================================
 
 /**
  * Extrae datos del proyecto desde la base de datos (por ID)
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function extractProjectData(projectId) {
   // TODO: Implementar consulta real a base de datos
@@ -31,6 +33,7 @@ export async function extractProjectData(projectId) {
 
 /**
  * Valida que los datos del proyecto sean suficientes para análisis
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export function validateProjectData(projectData) {
   const errors = [];
@@ -53,6 +56,7 @@ export function validateProjectData(projectData) {
 
 /**
  * Procesa y valida configuración de análisis PDF
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export function processAnalysisConfig(reqBody) {
   return {
@@ -66,6 +70,7 @@ export function processAnalysisConfig(reqBody) {
 
 /**
  * Valida archivo PDF subido
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export function validatePdfFile(file) {
   const errors = [];
@@ -88,6 +93,7 @@ export function validatePdfFile(file) {
 
 /**
  * Crea metadata de extracción de PDF
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export function createExtractionMetadata(contentResult) {
   return {
@@ -103,6 +109,7 @@ export function createExtractionMetadata(contentResult) {
 
 /**
  * Maneja errores de análisis PDF con códigos específicos
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export function handlePdfAnalysisError(error) {
   console.error('❌ Error en análisis PDF:', error);
@@ -139,12 +146,13 @@ export function handlePdfAnalysisError(error) {
   };
 }
 
-// ========================================
-// 💾 FUNCIONES DE BASE DE DATOS (PLACEHOLDERS)
-// ========================================
+// ====================================================================
+// 💾 FUNCIONES DE BASE DE DATOS (PLACEHOLDERS - TODAS SE USAN)
+// ====================================================================
 
 /**
  * Guarda análisis de proyecto en base de datos
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function saveAnalysisToDatabase(projectId, analysis, userId) {
   // TODO: Implementar guardado real en base de datos
@@ -163,6 +171,7 @@ export async function saveAnalysisToDatabase(projectId, analysis, userId) {
 
 /**
  * Guarda análisis PDF en base de datos
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function savePdfAnalysisToDatabase(analysisId, analysis, userId) {
   // TODO: Implementar guardado real en BD
@@ -181,6 +190,7 @@ export async function savePdfAnalysisToDatabase(analysisId, analysis, userId) {
 
 /**
  * Obtiene análisis PDF desde base de datos por ID
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function getPdfAnalysisFromDatabase(analysisId) {
   // TODO: Implementar consulta real a BD
@@ -200,6 +210,7 @@ export async function getPdfAnalysisFromDatabase(analysisId) {
 
 /**
  * Incrementa contador de uso del usuario
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function incrementUserUsage(userId, actionType) {
   // TODO: Implementar tracking real de uso para analytics
@@ -219,6 +230,7 @@ export async function incrementUserUsage(userId, actionType) {
 
 /**
  * Obtiene historial de análisis de un proyecto
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function getProjectAnalysisHistory(projectId, options = {}) {
   // TODO: Implementar query real a base de datos
@@ -262,6 +274,7 @@ export async function getProjectAnalysisHistory(projectId, options = {}) {
 
 /**
  * Compara múltiples análisis de un proyecto específico
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function compareProjectAnalyses(projectId, analysisIds, comparisonType = 'total_cost') {
   // TODO: Implementar lógica real de comparación
@@ -303,6 +316,7 @@ export async function compareProjectAnalyses(projectId, analysisIds, comparisonT
 
 /**
  * Genera comparación de múltiples análisis PDF
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function generatePdfComparison(analysisIds, comparisonType = 'total_cost') {
   // TODO: Implementar lógica real de comparación
@@ -340,12 +354,13 @@ export async function generatePdfComparison(analysisIds, comparisonType = 'total
   };
 }
 
-// ========================================
-// 🧩 FUNCIONES DE PROCESAMIENTO DE PDFs
-// ========================================
+// ====================================================================
+// 🧩 FUNCIONES DE PROCESAMIENTO DE PDFs (SOLO LA QUE SE USA)
+// ====================================================================
 
 /**
  * Crea chunks inteligentes basados en secciones del presupuesto
+ * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function createIntelligentChunks(text) {
   const chunks = [];
@@ -395,10 +410,15 @@ export async function createIntelligentChunks(text) {
   return chunks;
 }
 
+// ====================================================================
+// 🔧 FUNCIONES AUXILIARES INTERNAS (USADAS POR createIntelligentChunks)
+// ====================================================================
+
 /**
  * Detecta secciones del presupuesto en el texto
+ * ✅ USADA INTERNAMENTE por createIntelligentChunks
  */
-export function detectBudgetSections(text) {
+function detectBudgetSections(text) {
   const sections = [];
   const lines = text.split('\n');
   
@@ -455,8 +475,9 @@ export function detectBudgetSections(text) {
 
 /**
  * Divide texto en chunks con solapamiento
+ * ✅ USADA INTERNAMENTE por createIntelligentChunks
  */
-export function createTextChunks(text, maxSize, overlap) {
+function createTextChunks(text, maxSize, overlap) {
   const chunks = [];
   let start = 0;
   
@@ -476,53 +497,4 @@ export function createTextChunks(text, maxSize, overlap) {
   }
   
   return chunks;
-}
-
-/**
- * Calcula score de confianza para análisis PDF
- */
-export function calculatePdfConfidenceScore(results, consolidatedData) {
-  let score = 50; // Base score
-  
-  // Agregar puntos por chunks procesados exitosamente
-  const successfulChunks = results.filter(r => !r.error).length;
-  const totalChunks = results.length;
-  score += (successfulChunks / totalChunks) * 30;
-  
-  // Agregar puntos por datos extraídos
-  if (consolidatedData.materials && consolidatedData.materials.length > 0) score += 10;
-  if (consolidatedData.labor && consolidatedData.labor.length > 0) score += 10;
-  if (consolidatedData.equipment && consolidatedData.equipment.length > 0) score += 5;
-  if (consolidatedData.providers && consolidatedData.providers.length > 0) score += 5;
-  
-  return Math.min(Math.round(score), 100);
-}
-
-// ========================================
-// 🔧 FUNCIONES DE VALIDACIÓN ADICIONALES
-// ========================================
-
-/**
- * Calcula nivel de confianza basado en datos disponibles del proyecto
- */
-export function calculateValidationConfidence(projectData) {
-  let score = 0;
-  const maxScore = 100;
-
-  // Campos críticos (60% del score)
-  if (projectData.type) score += 20;
-  if (projectData.location) score += 20;
-  if (projectData.area && projectData.area > 0) score += 20;
-
-  // Campos importantes (30% del score)
-  if (projectData.estimatedBudget && projectData.estimatedBudget > 0) score += 15;
-  if (projectData.description && projectData.description.length > 10) score += 10;
-  if (projectData.startDate) score += 5;
-
-  // Campos adicionales (10% del score)
-  if (projectData.client) score += 5;
-  if (projectData.address) score += 3;
-  if (projectData.floors) score += 2;
-
-  return Math.min(score, maxScore);
 }
