@@ -1,6 +1,6 @@
+import config from '../config/config.mjs';
 // src/services/claudeService.mjs
 import Anthropic from '@anthropic-ai/sdk';
-import config from '../config/config.mjs';
 
 // Verificar que la API key esté configurada
 if (!config.anthropic.apiKey) {
@@ -23,45 +23,58 @@ console.log('✅ Cliente de Anthropic inicializado correctamente');
  */
 export const generateBudgetSuggestions = async (projectData, options = {}) => {
   try {
-    console.log('🤖 Iniciando análisis con Claude para proyecto:', projectData.name || 'Sin nombre');
+    console.log(`🤖 Iniciando análisis con ${config.anthropic.model} para:`, projectData.description || projectData.type);
     
-    // Construir contexto rico para Claude
+    // 🔥 VALIDACIÓN PREVIA
+    if (!projectData || !projectData.type) {
+      throw new Error('Datos de proyecto inválidos - tipo requerido');
+    }
+    
     const contextPrompt = buildProjectContext(projectData, options);
     
-    // Llamada a Claude API usando configuración
+    // 🔥 LLAMADA A API CON MANEJO DE ERRORES ROBUSTO
     const response = await anthropic.messages.create({
-      model: config.anthropic.model,
+      model: config.anthropic.model, // Usar modelo validado
       max_tokens: config.anthropic.maxTokens,
       temperature: config.anthropic.temperature,
       system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: contextPrompt
-        }
-      ]
+      messages: [{
+        role: "user",
+        content: contextPrompt
+      }]
     });
 
-    // Parsear respuesta
+    if (!response || !response.content || !response.content[0]) {
+      throw new Error('Respuesta inválida de la API de Anthropic');
+    }
+
     const analysisText = response.content[0].text;
-    console.log('✅ Respuesta recibida de Claude, parseando...');
+    console.log(`✅ ${config.anthropic.model} completó análisis manual`);
     
-    // Intentar parsear JSON, con fallback a texto estructurado
+    // 🔥 PARSEO MEJORADO CON FALLBACKS
     let analysis;
     try {
-      analysis = JSON.parse(analysisText);
+      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        analysis = JSON.parse(jsonMatch[0]);
+        console.log('✅ JSON parseado exitosamente');
+      } else {
+        throw new Error('No JSON found in response');
+      }
     } catch (parseError) {
       console.warn('⚠️ Respuesta no es JSON válido, creando estructura...');
       analysis = parseTextToStructured(analysisText);
     }
 
-    // Agregar metadatos
+    // 🔥 METADATA MEJORADA
     analysis.metadata = {
       generated_at: new Date().toISOString(),
-      model_used: "claude-3-5-sonnet",
+      model_used: config.anthropic.model,
       project_id: projectData.id || null,
       confidence_score: calculateConfidenceScore(projectData),
-      api_cost_estimate: estimateApiCost(response.usage || {})
+      api_cost_estimate: estimateApiCost(response.usage || {}),
+      processing_time_ms: Date.now() - Date.now(), // Puedes agregar timing real aquí
+      success: true
     };
 
     console.log('✅ Análisis completado exitosamente');
@@ -70,68 +83,76 @@ export const generateBudgetSuggestions = async (projectData, options = {}) => {
   } catch (error) {
     console.error('❌ Error en generateBudgetSuggestions:', error);
     
-    // Manejo específico de errores de Anthropic
-    if (error.status === 401) {
-      throw new Error('API key de Anthropic inválida o expirada');
-    } else if (error.status === 429) {
-      throw new Error('Límite de rate limit alcanzado. Intente nuevamente en unos minutos');
-    } else if (error.status === 400) {
-      throw new Error('Datos del proyecto inválidos para análisis');
+    // 🔥 MANEJO ESPECÍFICO DE ERRORES DE ANTHROPIC
+    if (error.status === 404) {
+      throw new Error(`Modelo no válido: ${config.anthropic.model}. Verifique la configuración.`);
     }
     
-    throw new Error(`Error en análisis AI: ${error.message}`);
+    if (error.status === 401) {
+      throw new Error('API Key de Anthropic inválida o sin permisos');
+    }
+    
+    if (error.status === 429) {
+      throw new Error('Límite de rate limit alcanzado en Anthropic API');
+    }
+    
+    if (error.status === 400) {
+      throw new Error(`Error en la solicitud a Anthropic: ${error.message}`);
+    }
+    
+    // Error genérico
+    throw new Error(`Error en análisis presupuestario: ${error.message}`);
   }
 };
 
 /**
  * Construye el contexto del proyecto para Claude
  */
-function buildProjectContext(projectData, options) {
-  const {
-    includeMarketData = true,
-    includeHistoricalData = false,
-    analysisDepth = 'standard'
-  } = options;
+function buildProjectContext(projectData, options = {}) {
+  console.log('🔍 Construyendo contexto para:', {
+    type: projectData.type,
+    location: projectData.location,
+    area: projectData.area,
+    description: projectData.description
+  });
 
-  let context = `
-ANÁLISIS PRESUPUESTARIO - PROYECTO DE CONSTRUCCIÓN CHILE
+  return `
+ANALIZAR PRESUPUESTO DE CONSTRUCCIÓN
 
-=== DATOS DEL PROYECTO ===
-Nombre: ${projectData.name || 'Proyecto sin nombre'}
-Tipo: ${projectData.type || 'No especificado'}
-Ubicación: ${projectData.location || 'No especificada'}
-Región: ${extractRegion(projectData.location)}
-Área construida: ${projectData.area || 'No especificada'} m²
-Presupuesto estimado: ${formatCurrency(projectData.estimatedBudget)} CLP
-Fecha inicio: ${projectData.startDate || 'No especificada'}
-Cliente: ${projectData.client || 'No especificado'}
+PROYECTO ESPECÍFICO:
+- Tipo: ${projectData.type || 'No especificado'}
+- Ubicación: ${projectData.location || 'No especificada'}
+- Área: ${projectData.area || 0} m²
+- Descripción: ${projectData.description || 'Sin descripción'}
+- Presupuesto estimado: $${(projectData.estimatedBudget || 0).toLocaleString('es-CL')} CLP
 
-=== CONTEXTO ADICIONAL ===`;
+CONTEXTO ESPECÍFICO:
+${projectData.description || `Proyecto ${projectData.type} de ${projectData.area}m² en ${projectData.location}`}
 
-  // Agregar descripción si existe
-  if (projectData.description) {
-    context += `\nDescripción: ${projectData.description}`;
-  }
+PARÁMETROS:
+- Profundidad: ${options.analysisDepth || 'standard'}
+- Incluir datos de mercado: ${options.includeMarketData ? 'Sí' : 'No'}
+- Incluir proveedores: ${options.includeProviders ? 'Sí' : 'No'}
 
-  // Agregar datos de ubicación específica
-  if (projectData.location) {
-    context += `\n
-=== FACTORES REGIONALES ===
-Zona geográfica: ${projectData.location}
-${getRegionalFactors(projectData.location)}`;
-  }
-
-  // Agregar datos de mercado si está habilitado
-  if (includeMarketData) {
-    context += `\n
-=== CONTEXTO DE MERCADO CHILE ===
-${getMarketContext()}`;
-  }
-
-  // Instrucciones específicas según profundidad
-  context += getAnalysisInstructions(analysisDepth);
-
-  return context;
+RESPONDER EN JSON:
+{
+  "resumen_ejecutivo": "Análisis específico del proyecto",
+  "presupuesto_ajustado": "Monto en CLP",
+  "desglose_detallado": {
+    "estructura": {"porcentaje": "X%", "monto": "$X CLP"},
+    "terminaciones": {"porcentaje": "X%", "monto": "$X CLP"},
+    "instalaciones": {"porcentaje": "X%", "monto": "$X CLP"}
+  },
+  "factores_regionales": {
+    "climaticos": "factores del clima en ${projectData.location}",
+    "logisticos": "consideraciones logísticas",
+    "mano_obra": "disponibilidad en ${projectData.location}"
+  },
+  "recomendaciones": ["recomendaciones específicas"],
+  "cronograma_sugerido": "tiempo estimado para ${projectData.type}",
+  "confidence_score": número
+}
+`;
 }
 
 /**
@@ -357,9 +378,17 @@ function formatCurrency(amount) {
  * @param {string} analysisId - ID único del análisis
  * @returns {Promise<Object>} - Análisis consolidado
  */
-export const generateDetailedPdfAnalysis = async (chunks, config, analysisId) => {
+export const generateDetailedPdfAnalysis = async (chunks, config, analysisConfig, analysisId) => {
+
+console.log("🔍 DEBUG generateDetailedPdfAnalysis - config:", !!config);
+console.log("🔍 DEBUG generateDetailedPdfAnalysis - config.anthropic:", !!config?.anthropic);
+console.log("🔍 DEBUG generateDetailedPdfAnalysis - config.anthropic.model:", config?.anthropic?.model);
   try {
     console.log(`🤖 Iniciando análisis detallado PDF con ${chunks.length} chunks`);
+    
+    if (!chunks || chunks.length === 0) {
+      throw new Error('No hay chunks para analizar');
+    }
     
     const results = [];
     const consolidatedData = {
@@ -370,16 +399,21 @@ export const generateDetailedPdfAnalysis = async (chunks, config, analysisId) =>
       sections: []
     };
 
-    // Paso 1: Análisis general y estructura
+    // 🔥 ANÁLISIS GENERAL CON VALIDACIONES
     console.log('📋 Fase 1: Análisis general del presupuesto');
-    const generalAnalysis = await analyzeGeneralStructure(chunks[0]?.content || '', config);
-    results.push({ type: 'general', data: generalAnalysis });
+    try {
+      const generalAnalysis = await analyzeGeneralStructure(chunks[0]?.content || '', config);
+      results.push({ type: 'general', data: generalAnalysis });
+    } catch (generalError) {
+      console.warn('⚠️ Error en análisis general:', generalError.message);
+      results.push({ type: 'general', error: generalError.message });
+    }
 
-    // Paso 2: Análisis de chunks específicos
+    // 🔥 ANÁLISIS DE CHUNKS CON LÍMITES Y TIMEOUTS
     console.log('🔍 Fase 2: Análisis detallado por secciones');
-    for (let i = 0; i < chunks.length; i++) {
+    for (let i = 0; i < Math.min(chunks.length, 10); i++) { // Limitar a 10 chunks máximo
       const chunk = chunks[i];
-      console.log(`📝 Procesando chunk ${i + 1}/${chunks.length} (${chunk.type})`);
+      console.log(`📝 Procesando chunk ${i + 1}/${Math.min(chunks.length, 10)} (${chunk.type})`);
       
       try {
         const chunkAnalysis = await analyzeChunkContent(chunk, config, i + 1, chunks.length);
@@ -392,10 +426,12 @@ export const generateDetailedPdfAnalysis = async (chunks, config, analysisId) =>
         // Consolidar datos específicos
         consolidateChunkData(chunkAnalysis, consolidatedData);
         
-        // Pausa pequeña para evitar rate limiting
-        if (i < chunks.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        // 🔥 PAUSA OBLIGATORIA PARA EVITAR RATE LIMITING
+        if (i < Math.min(chunks.length, 10) - 1) {
+          console.log('⏳ Pausa para rate limiting...');
+          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
         }
+        
       } catch (chunkError) {
         console.warn(`⚠️ Error procesando chunk ${i + 1}:`, chunkError.message);
         results.push({ 
@@ -406,30 +442,42 @@ export const generateDetailedPdfAnalysis = async (chunks, config, analysisId) =>
       }
     }
 
-    // Paso 3: Consolidación final
+    // 🔥 CONSOLIDACIÓN FINAL CON VALIDACIONES
     console.log('🔄 Fase 3: Consolidación y síntesis final');
-    const finalConsolidation = await generateFinalConsolidation(
-      consolidatedData, 
-      results, 
-      config
-    );
+    let finalConsolidation;
+    try {
+      finalConsolidation = await generateFinalConsolidation(
+        consolidatedData, 
+        results, 
+        config
+      );
+    } catch (consolidationError) {
+      console.warn('⚠️ Error en consolidación final:', consolidationError.message);
+      finalConsolidation = createFallbackConsolidation(consolidatedData, results);
+    }
 
-    // Construir respuesta final
+    // 🔥 RESPUESTA FINAL ROBUSTA
     const finalAnalysis = {
-      resumen_ejecutivo: finalConsolidation.executive_summary,
-      presupuesto_estimado: finalConsolidation.estimated_budget,
-      materiales_detallados: consolidatedData.materials,
-      mano_obra: consolidatedData.labor,
-      equipos_maquinaria: consolidatedData.equipment,
-      proveedores_chile: config.includeProviders ? consolidatedData.providers : [],
-      analisis_riesgos: finalConsolidation.risk_analysis,
-      recomendaciones: finalConsolidation.recommendations,
-      cronograma_estimado: finalConsolidation.timeline,
-      desglose_costos: finalConsolidation.cost_breakdown,
-      factores_regionales: finalConsolidation.regional_factors,
-      chunks_procesados: chunks.length,
+      resumen_ejecutivo: finalConsolidation.executive_summary || "Análisis completado con datos parciales",
+      presupuesto_estimado: finalConsolidation.estimated_budget || { total_clp: 0 },
+      materiales_detallados: consolidatedData.materials || [],
+      mano_obra: consolidatedData.labor || [],
+      equipos_maquinaria: consolidatedData.equipment || [],
+      proveedores_chile: analysisConfig.includeProviders ? consolidatedData.providers : [],
+      analisis_riesgos: finalConsolidation.risk_analysis || [],
+      recomendaciones: finalConsolidation.recommendations || [],
+      cronograma_estimado: finalConsolidation.timeline || "Requiere análisis adicional",
+      desglose_costos: finalConsolidation.cost_breakdown || {},
+      factores_regionales: finalConsolidation.regional_factors || {},
+      chunks_procesados: Math.min(chunks.length, 10),
       chunks_exitosos: results.filter(r => !r.error).length,
-      confidence_score: calculatePdfConfidenceScore(results, consolidatedData)
+      confidence_score: calculatePdfConfidenceScore(results, consolidatedData),
+      metadata: {
+        analysis_id: analysisId,
+        model_used: config.anthropic.model,
+        processing_time: new Date().toISOString(),
+        success: true
+      }
     };
 
     console.log('✅ Análisis PDF completado exitosamente');
@@ -437,16 +485,70 @@ export const generateDetailedPdfAnalysis = async (chunks, config, analysisId) =>
 
   } catch (error) {
     console.error('❌ Error en generateDetailedPdfAnalysis:', error);
-    throw new Error(`Error en análisis PDF: ${error.message}`);
+    
+    // 🔥 RETORNAR ERROR ESTRUCTURADO EN LUGAR DE FALLAR
+    return {
+      error: true,
+      message: error.message,
+      resumen_ejecutivo: "Error en el análisis del PDF",
+      presupuesto_estimado: { total_clp: 0, error: true },
+      materiales_detallados: [],
+      mano_obra: [],
+      equipos_maquinaria: [],
+      analisis_riesgos: [{
+        factor: "Error en procesamiento",
+        probability: "alta",
+        impact: "alto",
+        mitigation: "Revisar archivo y reintentar"
+      }],
+      recomendaciones: ["Verificar que el archivo PDF no esté corrupto", "Intentar con un archivo más pequeño"],
+      confidence_score: 0,
+      metadata: {
+        error: true,
+        error_message: error.message,
+        model_used: config.anthropic.model,
+        processing_time: new Date().toISOString()
+      }
+    };
   }
 };
+
+function createFallbackConsolidation(consolidatedData, results) {
+  return {
+    executive_summary: `Análisis parcialmente completado. Procesados ${results.length} chunks con ${results.filter(r => !r.error).length} exitosos.`,
+    estimated_budget: {
+      total_clp: 0,
+      note: "Estimación requiere análisis manual"
+    },
+    risk_analysis: [{
+      factor: "Análisis incompleto",
+      probability: "alta", 
+      impact: "medio",
+      mitigation: "Revisar y procesar nuevamente el documento"
+    }],
+    recommendations: [
+      "Verificar la calidad del documento PDF",
+      "Considerar dividir documentos muy largos",
+      "Revisar manualmente los datos extraídos"
+    ],
+    timeline: "Requiere análisis adicional",
+    cost_breakdown: {},
+    regional_factors: {
+      note: "Factores regionales requieren análisis manual"
+    }
+  };
+}
 
 /**
  * Analiza la estructura general del presupuesto
  */
 async function analyzeGeneralStructure(firstChunk, config) {
+  if (!firstChunk || firstChunk.length < 10) {
+    throw new Error('Chunk vacío o muy pequeño para análisis');
+  }
+
   const prompt = `
-Analiza esta primera sección de un presupuesto de construcción chileno y identifica:
+Analiza esta primera sección de un presupuesto de construcción chileno:
 
 TEXTO DEL PRESUPUESTO:
 ${firstChunk.substring(0, 8000)}
@@ -466,11 +568,10 @@ RESPONDE EN FORMATO JSON:
   "observaciones_generales": ["lista de observaciones"]
 }
 
-Contexto del proyecto: ${config.projectType} en ${config.projectLocation}
-Incluir factores específicos del mercado chileno.`;
+Contexto del proyecto: ${config.projectType} en ${config.projectLocation}`;
 
   const response = await anthropic.messages.create({
-    model: config.anthropic?.model || "claude-3-5-sonnet-20241022",
+    model: config.anthropic.model,
     max_tokens: 2000,
     temperature: 0.3,
     system: PDF_ANALYSIS_SYSTEM_PROMPT,
@@ -494,7 +595,7 @@ async function analyzeChunkContent(chunk, config, chunkIndex, totalChunks) {
   const prompt = sectionPrompts[chunk.type] || sectionPrompts['general'];
 
   const response = await anthropic.messages.create({
-    model: config.anthropic?.model || "claude-3-5-sonnet-20241022",
+    model: config.anthropic.model,
     max_tokens: 3000,
     temperature: 0.2,
     system: PDF_ANALYSIS_SYSTEM_PROMPT,
@@ -727,7 +828,7 @@ CONTEXTO: Proyecto ${config.projectType} en ${config.projectLocation}
 Considera factores específicos del mercado de construcción chileno.`;
 
   const response = await anthropic.messages.create({
-    model: config.anthropic?.model || "claude-3-5-sonnet-20241022",
+    model: config.anthropic.model,
     max_tokens: 4000,
     temperature: 0.3,
     system: PDF_ANALYSIS_SYSTEM_PROMPT,
@@ -822,152 +923,154 @@ Para el mercado chileno considera:
  * Analiza documentos usando Claude Vision (versión mejorada)
  * Puede manejar PDFs directamente sin conversión a imágenes
  */
-export async function analyzeDocumentImages(images, config = {}) {
+export async function analyzeDocumentImages(images, analysisConfig = {}) {
   try {
-    console.log(`🤖 Analizando documento con Claude Vision...`);
+    console.log(`🤖 Analizando documento con Claude Sonnet 4...`);
     
     if (!images || images.length === 0) {
       throw new Error('No se proporcionaron documentos para analizar');
     }
     
-    // Verificar API key
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error('API key de Anthropic no configurada');
     }
-    
-    // Prompt especializado para presupuestos de construcción
-    const analysisPrompt = `
-Eres un experto analista de presupuestos de construcción chileno. Analiza este documento y extrae TODA la información relevante.
 
-INSTRUCCIONES ESPECÍFICAS:
-1. Extrae TODO el texto visible
-2. Identifica elementos del presupuesto:
-   - Partidas y códigos de obra
-   - Materiales con cantidades y precios unitarios
-   - Mano de obra con horas y tarifas
-   - Equipos y maquinaria
-   - Subcontratos y servicios
-   - Totales parciales y generales
-3. Mantén la estructura y formato original
-4. Para tablas, preserva columnas y filas
-5. Identifica proveedores y especificaciones técnicas
-6. Busca fechas, ubicaciones y datos del proyecto
+    const prompt = `
+Eres un experto analista de presupuestos de construcción chileno. Analiza este documento PDF y extrae TODA la información.
 
-FORMATO DE RESPUESTA - Devuelve SOLO este JSON:
+RESPONDER EN JSON ESTRUCTURADO:
 {
-  "extracted_text": "Todo el texto extraído con formato original",
-  "budget_items": [
+  "resumen_ejecutivo": "Resumen completo del documento",
+  "presupuesto_estimado": {
+    "total_clp": número,
+    "materials_percentage": número,
+    "labor_percentage": número,
+    "equipment_percentage": número
+  },
+  "materiales_detallados": [
     {
-      "code": "código si existe",
-      "description": "descripción completa",
-      "quantity": número,
-      "unit": "unidad (m2, ml, kg, etc)",
-      "unit_price": número,
-      "total_price": número,
-      "category": "material|labor|equipment|subcontract|other"
+      "item": "nombre del material",
+      "cantidad": número,
+      "unidad": "m2/m3/kg/unidades",
+      "precio_unitario": número,
+      "subtotal": número,
+      "categoria": "hormigon/acero/madera/instalaciones"
     }
   ],
-  "totals": {
-    "materials": número_o_null,
-    "labor": número_o_null, 
-    "equipment": número_o_null,
-    "subtotal": número_o_null,
-    "total": número_o_null
-  },
-  "metadata": {
-    "project_name": "nombre si se identifica",
-    "date": "fecha si se identifica",
-    "location": "ubicación si se identifica",
-    "document_type": "especificaciones_tecnicas|presupuesto|cotizacion|otro"
-  },
-  "confidence": número_entre_1_y_100,
-  "analysis": "Resumen ejecutivo del documento"
+  "mano_obra": [
+    {
+      "especialidad": "tipo de trabajo",
+      "cantidad_personas": número,
+      "horas_totales": número,
+      "tarifa_hora": número,
+      "subtotal": número
+    }
+  ],
+  "equipos_maquinaria": [
+    {
+      "tipo_equipo": "descripción",
+      "tiempo_uso": "período",
+      "tarifa_periodo": número,
+      "subtotal": número
+    }
+  ],
+  "proveedores_chile": [
+    {
+      "nombre": "nombre del proveedor",
+      "contacto": "información de contacto",
+      "especialidad": "área de especialización"
+    }
+  ],
+  "analisis_riesgos": [
+    {
+      "factor": "descripción del riesgo",
+      "probability": "alta/media/baja",
+      "impact": "alto/medio/bajo",
+      "mitigation": "estrategia de mitigación"
+    }
+  ],
+  "recomendaciones": ["lista de recomendaciones específicas"],
+  "cronograma_estimado": "descripción del cronograma sugerido",
+  "confidence_score": número_entre_70_y_100
 }
 
-CONTEXTO CHILENO: Presta atención a:
-- Códigos BIM o especificaciones NCh (normas chilenas)
-- Precios en pesos chilenos (CLP, $)
-- Términos técnicos de construcción en español
-- Unidades métricas (m2, m3, kg, ton, etc.)
-
-Analiza minuciosamente y extrae TODO el contenido posible.
+INSTRUCCIONES ESPECÍFICAS:
+- Extrae TODO el texto visible de todas las páginas
+- Identifica todos los ítems con precios y cantidades
+- Calcula totales y subtotales cuando no estén explícitos
+- Incluye factores específicos del mercado chileno
+- Mantén precisión en números y unidades de medida
 `;
 
-    // Preparar mensaje para Claude
-    const messageContent = [
-      { type: 'text', text: analysisPrompt },
-      ...images
-    ];
+    // 🔥 LIMPIAR IMÁGENES
+    const cleanedImages = images.map(img => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: img.source.media_type || 'image/png',
+        data: img.source.data
+      }
+    }));
 
-    // Llamar a Claude Vision API
+    console.log(`🚀 Enviando ${cleanedImages.length} imágenes a Claude Sonnet 4...`);
+
+    // 🔥 USAR CONFIGURACIÓN CORRECTA
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
-      temperature: 0.1, // Baja temperatura para máxima precisión
-      messages: [
-        {
-          role: 'user',
-          content: messageContent
-        }
-      ]
+      model: config.anthropic.model, // 🔥 CLAVE: USA TU CONFIG
+      max_tokens: config.anthropic.maxTokens,
+      temperature: 0.1,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt },
+          ...cleanedImages
+        ]
+      }]
     });
 
     const analysisText = response.content[0].text;
-    console.log('✅ Claude Vision completó el análisis');
+    console.log('✅ Claude Sonnet 4 completó el análisis');
 
     // Parsear respuesta JSON
     let parsedResult;
     try {
-      // Buscar JSON en la respuesta
       const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         parsedResult = JSON.parse(jsonMatch[0]);
-        console.log(`📊 Datos extraídos: ${parsedResult.budget_items?.length || 0} items`);
+        console.log(`📊 Análisis completado: ${parsedResult.materiales_detallados?.length || 0} materiales`);
       } else {
         throw new Error('No se encontró JSON en la respuesta');
       }
     } catch (parseError) {
       console.warn('⚠️ Error parseando JSON, usando análisis como texto');
       parsedResult = {
-        extracted_text: analysisText,
-        budget_items: [],
-        totals: {},
-        metadata: { document_type: 'unknown' },
-        confidence: 75,
-        analysis: 'Análisis de texto sin estructura JSON',
+        resumen_ejecutivo: analysisText,
+        presupuesto_estimado: { total_clp: 0 },
+        materiales_detallados: [],
+        mano_obra: [],
+        equipos_maquinaria: [],
+        proveedores_chile: [],
+        analisis_riesgos: [],
+        recomendaciones: [],
+        cronograma_estimado: '',
+        confidence_score: 75,
         parsing_error: true,
         raw_response: analysisText
       };
     }
 
-    // Validar y enriquecer resultado
     return {
       ...parsedResult,
       processing_info: {
-        model_used: 'claude-3-5-sonnet-20241022',
+        model_used: config.anthropic.model,
         processing_time: new Date().toISOString(),
-        config: config,
-        response_length: analysisText.length
+        images_processed: cleanedImages.length
       }
     };
 
   } catch (error) {
-    console.error('❌ Error en Claude Vision:', error);
-    
-    // Errores específicos para mejor debugging
-    if (error.message.includes('API key')) {
-      throw new Error('API key de Claude no está configurada');
-    }
-    
-    if (error.message.includes('rate_limit')) {
-      throw new Error('Límite de API alcanzado, intente en unos minutos');
-    }
-    
-    if (error.message.includes('overloaded')) {
-      throw new Error('Servicio Claude temporalmente sobrecargado');
-    }
-    
-    throw new Error(`Error en análisis con Claude Vision: ${error.message}`);
+    console.error('❌ Error en Claude Sonnet 4:', error);
+    throw error;
   }
 }
 

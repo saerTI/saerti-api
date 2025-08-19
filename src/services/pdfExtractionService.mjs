@@ -1,6 +1,6 @@
 // src/services/pdfExtractionService.mjs
-// 🐧 VERSIÓN COMPATIBLE CON LINUX - SIN PDF2PIC
-
+// 🔥 VERSIÓN OPTIMIZADA PARA PDFs LARGOS CON CLAUDE DIRECTO
+import config from '../config/config.mjs';
 import Anthropic from '@anthropic-ai/sdk';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -8,8 +8,10 @@ import fs from 'fs/promises';
 import path from 'path';
 
 const execAsync = promisify(exec);
+
+// 🔥 USAR CONFIG CORRECTO
 const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY
+  apiKey: config.anthropic.apiKey
 });
 
 let pdfParse;
@@ -24,34 +26,36 @@ try {
   pdfParse = null;
 }
 
-// NO cargar pdf2pic ya que causa problemas en Linux
 console.log('🐧 Modo Linux: Usando herramientas del sistema para conversión PDF');
 
 export class PdfExtractionService {
   
   /**
-   * Función principal compatible con Linux
+   * 🔥 FUNCIÓN PRINCIPAL MEJORADA PARA PDFs LARGOS
    */
   static async extractContent(buffer, fileName) {
     try {
-      console.log(`📝 Iniciando extracción Linux-compatible de: ${fileName}`);
+      console.log(`📝 Iniciando extracción para: ${fileName} (${(buffer.length / 1024 / 1024).toFixed(2)} MB)`);
       const startTime = Date.now();
       
       // Análisis de tipo de PDF
       const analysis = await this.analyzePdfType(buffer);
       console.log(`🔍 PDF clasificado como: ${analysis.pdfType} (${analysis.textLength} caracteres)`);
       
-      // Estrategia basada en análisis
-      if (analysis.hasRichText) {
-        console.log('📝 ESTRATEGIA: PDF con texto nativo');
-        return await this.processNativeText(analysis, startTime);
-      } else if (analysis.isScanned) {
-        console.log('🖼️ ESTRATEGIA: PDF escaneado (OCR con herramientas Linux)');
-        return await this.processScannedLinux(buffer, fileName, analysis, startTime);
-      } else {
-        console.log('🔄 ESTRATEGIA: PDF híbrido');
-        return await this.processHybridLinux(buffer, fileName, analysis, startTime);
+      // 🔥 ESTRATEGIA PRINCIPAL: CLAUDE VISION DIRECTO PARA PDFs LARGOS
+      if (buffer.length < 30 * 1024 * 1024) { // < 30MB
+        console.log('🎯 ESTRATEGIA: Análisis directo con Claude Vision (PDF completo)');
+        try {
+          return await this.analyzeWithClaudeVisionDirect(buffer, fileName, analysis, startTime);
+        } catch (visionError) {
+          console.warn('⚠️ Claude Vision directo falló, intentando estrategia de chunks:', visionError.message);
+        }
       }
+      
+      // Fallback: Estrategia por páginas para PDFs muy grandes
+      console.log('📄 ESTRATEGIA: Análisis por páginas (PDF muy grande)');
+      return await this.analyzeByPages(buffer, fileName, analysis, startTime);
+      
     } catch (error) {
       console.error('❌ Error en extractContent:', error);
       throw error;
@@ -59,7 +63,371 @@ export class PdfExtractionService {
   }
 
   /**
-   * Analiza tipo de PDF
+   * 🔥 NUEVA: Análisis directo con Claude Vision para PDFs completos
+   */
+  static async analyzeWithClaudeVisionDirect(buffer, fileName, analysis, startTime) {
+    try {
+      console.log('🤖 Analizando PDF completo con Claude Vision...');
+      
+      // Convertir PDF a base64
+      const base64Pdf = buffer.toString('base64');
+      
+      const prompt = `
+Analiza este documento PDF completo de construcción/presupuesto y extrae TODO el contenido.
+
+RESPONDER EN FORMATO JSON:
+{
+  "extracted_text": "TEXTO COMPLETO DEL DOCUMENTO PRESERVANDO ESTRUCTURA",
+  "budget_summary": {
+    "total_budget_clp": número,
+    "project_name": "nombre del proyecto",
+    "contractor": "empresa contratista",
+    "document_type": "presupuesto|cotizacion|especificacion"
+  },
+  "detailed_items": [
+    {
+      "item": "descripción del item",
+      "cantidad": número,
+      "unidad": "m2/m3/kg/unidad",
+      "precio_unitario": número,
+      "subtotal": número,
+      "categoria": "materiales|mano_obra|equipos|otros",
+      "seccion": "sección del presupuesto"
+    }
+  ],
+  "totals_by_section": {
+    "materiales": número,
+    "mano_obra": número,
+    "equipos": número,
+    "gastos_generales": número,
+    "iva": número,
+    "total_final": número
+  },
+  "key_observations": [
+    "observación importante 1",
+    "observación importante 2"
+  ],
+  "confidence_score": número_entre_80_y_100
+}
+
+INSTRUCCIONES CRÍTICAS:
+1. Extrae TODOS los ítems con precios del documento
+2. Mantén la estructura y formato original del texto
+3. Identifica correctamente monedas (CLP, UF, USD)
+4. Calcula totales cuando no estén explícitos
+5. Preserva números con máxima precisión
+
+DOCUMENTO: ${fileName}
+`;
+
+      const response = await anthropic.messages.create({
+        model: config.anthropic.model,
+        max_tokens: config.anthropic.maxTokens,
+        temperature: 0.1,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64Pdf
+              }
+            }
+          ]
+        }]
+      });
+
+      const analysisText = response.content[0].text;
+      console.log(`✅ Claude Vision analizó PDF completo (${analysisText.length} caracteres)`);
+
+      // Parsear respuesta JSON
+      let parsedResult;
+      try {
+        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsedResult = JSON.parse(jsonMatch[0]);
+          
+          // Validar que se extrajo contenido útil
+          if (parsedResult.extracted_text && parsedResult.extracted_text.length > 100) {
+            console.log(`📊 Extracción exitosa: ${parsedResult.detailed_items?.length || 0} items detectados`);
+            
+            return {
+              content: parsedResult.extracted_text,
+              extraction_method: 'claude_vision_direct_pdf',
+              success: true,
+              confidence: parsedResult.confidence_score || 85,
+              processing_time_ms: Date.now() - startTime,
+              pdf_type: 'analyzed_complete',
+              source: 'claude_vision_direct',
+              metadata: parsedResult,
+              items_extracted: parsedResult.detailed_items?.length || 0
+            };
+          }
+        }
+        
+        throw new Error('JSON inválido o contenido insuficiente');
+        
+      } catch (parseError) {
+        console.warn('⚠️ Error parseando JSON, usando texto directo');
+        
+        // Si hay texto extraído aunque no sea JSON, usarlo
+        if (analysisText.length > 500) {
+          return {
+            content: analysisText,
+            extraction_method: 'claude_vision_text_fallback',
+            success: true,
+            confidence: 75,
+            processing_time_ms: Date.now() - startTime,
+            pdf_type: 'analyzed_text_only',
+            source: 'claude_vision_fallback',
+            note: 'Análisis completo pero formato no estructurado'
+          };
+        }
+        
+        throw parseError;
+      }
+      
+    } catch (error) {
+      console.error('❌ Error en análisis Claude Vision directo:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 🔥 NUEVA: Análisis por páginas para PDFs muy grandes (20+ páginas)
+   */
+  static async analyzeByPages(buffer, fileName, analysis, startTime) {
+    try {
+      console.log('📚 Analizando PDF por páginas...');
+      
+      // Convertir a imágenes página por página
+      const images = await this.convertToImagesByPages(buffer, fileName);
+      
+      if (!images || images.length === 0) {
+        throw new Error('No se pudieron generar imágenes del PDF');
+      }
+      
+      console.log(`📄 ${images.length} páginas convertidas a imágenes`);
+      
+      // Analizar en batches de 5 páginas
+      const batchSize = 5;
+      const allResults = [];
+      let consolidatedText = '';
+      
+      for (let i = 0; i < images.length; i += batchSize) {
+        const batch = images.slice(i, i + batchSize);
+        console.log(`📊 Analizando batch ${Math.floor(i/batchSize) + 1}: páginas ${i + 1}-${Math.min(i + batchSize, images.length)}`);
+        
+        try {
+          const batchResult = await this.analyzeBatchWithClaude(batch, i + 1, images.length);
+          allResults.push(batchResult);
+          
+          if (batchResult.extracted_text) {
+            consolidatedText += `\n\n--- PÁGINAS ${i + 1}-${Math.min(i + batchSize, images.length)} ---\n`;
+            consolidatedText += batchResult.extracted_text;
+          }
+          
+          // Pausa para evitar rate limiting
+          if (i + batchSize < images.length) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+          
+        } catch (batchError) {
+          console.warn(`⚠️ Error en batch ${Math.floor(i/batchSize) + 1}:`, batchError.message);
+          allResults.push({ error: batchError.message, pages: `${i + 1}-${Math.min(i + batchSize, images.length)}` });
+        }
+      }
+      
+      // Consolidar resultados
+      const successfulBatches = allResults.filter(r => !r.error).length;
+      const totalBatches = allResults.length;
+      
+      console.log(`✅ Análisis por páginas completado: ${successfulBatches}/${totalBatches} batches exitosos`);
+      
+      return {
+        content: consolidatedText,
+        extraction_method: 'claude_vision_paginated',
+        success: true,
+        confidence: Math.round((successfulBatches / totalBatches) * 85),
+        processing_time_ms: Date.now() - startTime,
+        pdf_type: 'paginated_analysis',
+        source: 'claude_vision_batched',
+        pages_processed: images.length,
+        batches_processed: totalBatches,
+        successful_batches: successfulBatches,
+        detailed_results: allResults
+      };
+      
+    } catch (error) {
+      console.error('❌ Error en análisis por páginas:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Convierte PDF a imágenes por páginas
+   */
+  static async convertToImagesByPages(buffer, fileName) {
+    try {
+      const tempId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const tempPdfPath = `./temp/${tempId}.pdf`;
+      const tempImagePrefix = `./temp/${tempId}`;
+      
+      // Asegurar que existe directorio temp
+      await fs.mkdir('./temp', { recursive: true });
+      
+      try {
+        // Guardar PDF temporal
+        await fs.writeFile(tempPdfPath, buffer);
+        console.log(`💾 PDF guardado temporalmente: ${tempPdfPath}`);
+        
+        // Verificar herramientas disponibles
+        try {
+          await execAsync('which pdftoppm');
+        } catch (e) {
+          throw new Error('pdftoppm no disponible. Instale: sudo dnf install poppler-utils');
+        }
+        
+        // Convertir TODAS las páginas a imágenes (sin límite de páginas)
+        const command = `pdftoppm -png -r 150 "${tempPdfPath}" "${tempImagePrefix}"`;
+        console.log('🔄 Convirtiendo todas las páginas:', command);
+        
+        await execAsync(command);
+        
+        // Buscar todas las imágenes generadas
+        const tempDir = './temp';
+        const files = await fs.readdir(tempDir);
+        const imageFiles = files.filter(file => 
+          file.startsWith(path.basename(tempImagePrefix)) && file.endsWith('.png')
+        ).sort();
+        
+        console.log(`📸 ${imageFiles.length} páginas convertidas`);
+        
+        if (imageFiles.length === 0) {
+          throw new Error('No se generaron imágenes del PDF');
+        }
+        
+        // Convertir a formato para Claude
+        const images = [];
+        for (let i = 0; i < imageFiles.length; i++) {
+          const imagePath = path.join(tempDir, imageFiles[i]);
+          try {
+            const imageBuffer = await fs.readFile(imagePath);
+            
+            images.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: 'image/png',
+                data: imageBuffer.toString('base64')
+              }
+            });
+            
+            console.log(`✅ Página ${i + 1} preparada (${(imageBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
+            
+            // Limpiar imagen temporal
+            await fs.unlink(imagePath).catch(() => {});
+            
+          } catch (imageError) {
+            console.warn(`⚠️ Error procesando página ${i + 1}:`, imageError.message);
+          }
+        }
+        
+        return images;
+        
+      } finally {
+        // Limpiar archivo PDF temporal
+        await fs.unlink(tempPdfPath).catch(() => {});
+      }
+      
+    } catch (error) {
+      console.error('❌ Error convirtiendo PDF a imágenes:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Analiza un batch de páginas con Claude
+   */
+  static async analyzeBatchWithClaude(images, startPage, totalPages) {
+    try {
+      const prompt = `
+Extrae TODO el texto de estas ${images.length} páginas de un presupuesto de construcción.
+
+PÁGINAS: ${startPage} a ${startPage + images.length - 1} de ${totalPages}
+
+RESPONDER EN JSON:
+{
+  "extracted_text": "TEXTO COMPLETO DE ESTAS PÁGINAS",
+  "budget_items": [
+    {
+      "item": "descripción",
+      "cantidad": número,
+      "unidad": "unidad",
+      "precio_unitario": número,
+      "subtotal": número,
+      "pagina": número_de_página
+    }
+  ],
+  "section_totals": {
+    "subtotal_seccion": número,
+    "seccion_name": "nombre de la sección"
+  },
+  "page_notes": ["observaciones importantes de estas páginas"]
+}
+
+CRÍTICO: Extrae TODOS los números, precios y cantidades con máxima precisión.
+`;
+
+      const response = await anthropic.messages.create({
+        model: config.anthropic.model,
+        max_tokens: 4000,
+        temperature: 0.1,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            ...images
+          ]
+        }]
+      });
+
+      const analysisText = response.content[0].text;
+      
+      // Intentar parsear JSON
+      try {
+        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            ...parsed,
+            pages_in_batch: images.length,
+            start_page: startPage
+          };
+        }
+      } catch (parseError) {
+        console.warn(`⚠️ Error parseando JSON del batch ${startPage}, usando texto`);
+      }
+      
+      // Fallback: retornar texto sin estructura
+      return {
+        extracted_text: analysisText,
+        pages_in_batch: images.length,
+        start_page: startPage,
+        parsing_error: true
+      };
+      
+    } catch (error) {
+      console.error('❌ Error analizando batch:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Analiza tipo de PDF (mantener función original)
    */
   static async analyzePdfType(buffer) {
     let textLength = 0;
@@ -94,7 +462,106 @@ export class PdfExtractionService {
   }
 
   /**
-   * Procesa PDF con texto nativo
+   * 🔥 OCR CORREGIDO - Usa config correctamente
+   */
+  static async performOCR(images, analysisConfig = {}) {
+    try {
+      if (!config.anthropic.apiKey) {
+        throw new Error('API key de Anthropic no configurada');
+      }
+
+      console.log(`📤 Enviando ${images.length} imágenes a Claude Vision...`);
+
+      const prompt = `
+Extrae TODO el texto visible de estas imágenes de un presupuesto de construcción chileno.
+
+RESPONDER EN JSON VÁLIDO:
+{
+  "extracted_text": "TEXTO COMPLETO PRESERVANDO FORMATO Y ESTRUCTURA",
+  "budget_items": [
+    {
+      "item": "descripción del item",
+      "cantidad": número,
+      "unidad": "unidad de medida",
+      "precio_unitario": número,
+      "subtotal": número,
+      "categoria": "categoria del item"
+    }
+  ],
+  "totals": {
+    "subtotal": número,
+    "iva": número,
+    "total": número
+  },
+  "metadata": {
+    "document_type": "presupuesto|cotizacion|especificacion",
+    "contractor": "nombre del contratista si aparece",
+    "project_name": "nombre del proyecto si aparece"
+  },
+  "confidence": número_entre_70_y_100
+}
+
+Analiza minuciosamente cada página y extrae TODOS los datos numéricos y descriptivos.
+`;
+
+      // 🔥 USAR CONFIG CORRECTO
+      const response = await anthropic.messages.create({
+        model: config.anthropic.model, // ✅ USA TU CONFIG
+        max_tokens: config.anthropic.maxTokens,
+        temperature: 0.1,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            ...images
+          ]
+        }]
+      });
+
+      console.log(`✅ Claude Vision completó el análisis`);
+      
+      const analysisText = response.content[0].text;
+      
+      // Parsear respuesta JSON
+      let parsedResult;
+      try {
+        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsedResult = JSON.parse(jsonMatch[0]);
+          console.log(`📊 Datos extraídos: ${parsedResult.budget_items?.length || 0} items`);
+        } else {
+          throw new Error('No se encontró JSON en la respuesta');
+        }
+      } catch (parseError) {
+        console.warn('⚠️ Error parseando JSON, usando análisis como texto');
+        parsedResult = {
+          extracted_text: analysisText,
+          budget_items: [],
+          totals: {},
+          metadata: { document_type: 'unknown' },
+          confidence: 75,
+          parsing_error: true,
+          raw_response: analysisText
+        };
+      }
+
+      return {
+        ...parsedResult,
+        processing_info: {
+          model_used: config.anthropic.model, // ✅ USAR CONFIG
+          processing_time: new Date().toISOString(),
+          images_analyzed: images.length
+        }
+      };
+
+    } catch (error) {
+      console.error('❌ Error en Claude Vision:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Procesa PDF con texto nativo (mantener)
    */
   static async processNativeText(analysis, startTime) {
     return {
@@ -109,376 +576,48 @@ export class PdfExtractionService {
   }
 
   /**
-   * Procesa PDF escaneado usando herramientas Linux nativas
+   * Diagnóstico del sistema
    */
-  static async processScannedLinux(buffer, fileName, analysis, startTime) {
-    console.log('🐧 Procesando PDF escaneado con herramientas Linux...');
+  static async diagnoseSystem() {
+    console.log('🔧 Diagnóstico del sistema...');
     
-    try {
-      // Estrategia 1: Usar pdftoppm (parte de poppler-utils)
-      const images = await this.convertWithPdftoppm(buffer);
-      
-      if (images && images.length > 0) {
-        console.log(`✅ ${images.length} imágenes generadas con pdftoppm`);
-        
-        const ocrResult = await this.performOCR(images, {
-          document_type: 'scanned_construction_budget'
-        });
-        
-        return {
-          content: ocrResult.extracted_text,
-          extraction_method: 'pdftoppm_claude_vision',
-          success: true,
-          confidence: ocrResult.confidence || 88,
-          processing_time_ms: Date.now() - startTime,
-          images_processed: images.length,
-          pdf_type: 'scanned',
-          source: 'linux_native_tools'
-        };
-      }
-      
-      throw new Error('No se pudieron generar imágenes');
-      
-    } catch (error) {
-      console.warn('⚠️ Conversión con herramientas Linux falló:', error.message);
-      
-      // Fallback: Claude directo (si el PDF no es muy grande)
-      if (buffer.length < 10 * 1024 * 1024) { // < 10MB
-        try {
-          console.log('🧪 Intentando Claude Vision directo...');
-          return await this.tryClaudeDirectPdf(buffer, analysis, startTime);
-        } catch (directError) {
-          console.warn('⚠️ Claude directo falló:', directError.message);
-        }
-      }
-      
-      // Último fallback
-      if (analysis.hasText && analysis.textLength > 10) {
-        console.log('🔄 FALLBACK: Usando texto parcial');
-        return {
-          content: analysis.extractedText,
-          extraction_method: 'pdf_text_fallback',
-          success: true,
-          confidence: 30,
-          processing_time_ms: Date.now() - startTime,
-          pdf_type: 'scanned_with_fallback',
-          warning: 'Conversión a imágenes falló, usando texto parcial'
-        };
-      }
-      
-      throw new Error(
-        'No se pudo procesar el PDF escaneado.\n\n' +
-        'SOLUCIONES PARA LINUX:\n' +
-        '1. Instalar poppler-utils: sudo dnf install poppler-utils\n' +
-        '2. Verificar ImageMagick: sudo dnf install ImageMagick\n' +
-        '3. Convertir PDF externamente a JPG/PNG\n' +
-        '4. Usar un OCR online primero'
-      );
-    }
-  }
-
-  /**
-   * Convierte PDF usando pdftoppm (herramienta Linux nativa)
-   */
-  static async convertWithPdftoppm(buffer) {
-    try {
-      console.log('🔄 Convirtiendo PDF con pdftoppm...');
-      
-      // Crear directorio temporal
-      await fs.mkdir('./temp', { recursive: true });
-      
-      const tempId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
-      const tempPdfPath = `./temp/${tempId}.pdf`;
-      const tempImagePrefix = `./temp/${tempId}`;
-      
-      try {
-        // Guardar PDF temporal
-        await fs.writeFile(tempPdfPath, buffer);
-        console.log('📄 PDF temporal guardado');
-        
-        // Verificar si pdftoppm está disponible
-        try {
-          await execAsync('which pdftoppm');
-        } catch (error) {
-          throw new Error('pdftoppm no encontrado. Instale poppler-utils: sudo dnf install poppler-utils');
-        }
-        
-        // Convertir PDF a imágenes PNG con pdftoppm
-        const command = `pdftoppm -png -f 1 -l 8 -r 200 "${tempPdfPath}" "${tempImagePrefix}"`;
-        console.log('🔄 Ejecutando:', command);
-        
-        const { stdout, stderr } = await execAsync(command);
-        
-        if (stderr && !stderr.includes('Warning')) {
-          console.warn('⚠️ pdftoppm stderr:', stderr);
-        }
-        
-        // Buscar archivos PNG generados
-        const tempDir = './temp';
-        const files = await fs.readdir(tempDir);
-        const imageFiles = files.filter(file => 
-          file.startsWith(tempId) && file.endsWith('.png')
-        ).sort();
-        
-        console.log(`📸 Archivos de imagen encontrados: ${imageFiles.length}`);
-        
-        if (imageFiles.length === 0) {
-          throw new Error('pdftoppm no generó archivos de imagen');
-        }
-        
-        // Convertir archivos a base64
-        const images = [];
-        for (let i = 0; i < Math.min(imageFiles.length, 8); i++) {
-          const imagePath = path.join(tempDir, imageFiles[i]);
-          try {
-            const imageBuffer = await fs.readFile(imagePath);
-            
-            images.push({
-              type: 'image',
-              source: {
-                type: 'base64',
-                media_type: 'image/png',
-                data: imageBuffer.toString('base64')
-              },
-              page_number: i + 1,
-              size_mb: (imageBuffer.length / 1024 / 1024).toFixed(2)
-            });
-            
-            console.log(`✅ Página ${i + 1} convertida (${(imageBuffer.length / 1024 / 1024).toFixed(2)} MB)`);
-            
-            // Limpiar archivo temporal
-            await fs.unlink(imagePath).catch(() => {});
-            
-          } catch (imageError) {
-            console.warn(`⚠️ Error procesando imagen ${imageFiles[i]}:`, imageError.message);
-          }
-        }
-        
-        return images;
-        
-      } finally {
-        // Limpiar archivo PDF temporal
-        await fs.unlink(tempPdfPath).catch(() => {});
-      }
-      
-    } catch (error) {
-      console.error('❌ Error en convertWithPdftoppm:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Intenta usar Claude Vision directamente con el PDF
-   */
-  static async tryClaudeDirectPdf(buffer, analysis, startTime) {
-    console.log('🧪 Intentando análisis directo con Claude...');
-    
-    const base64Pdf = buffer.toString('base64');
-    
-    // Solo intentar si el PDF no es muy grande
-    if (base64Pdf.length > 15 * 1024 * 1024) {
-      throw new Error('PDF demasiado grande para análisis directo');
-    }
-    
-    const response = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 4000,
-      temperature: 0.1,
-      messages: [{
-        role: 'user',
-        content: `
-Analiza este documento PDF escaneado y extrae todo el texto visible.
-
-IMPORTANTE:
-- Es un presupuesto o especificaciones técnicas de construcción
-- Extrae números, cantidades, precios con máxima precisión
-- Mantén el formato y estructura original
-- Si hay tablas, preserva columnas y filas
-
-Responde SOLO con el texto extraído, sin comentarios adicionales.
-
-[PDF BASE64: ${base64Pdf.substring(0, 100)}...]`
-      }]
-    });
-    
-    const extractedText = response.content[0].text;
-    
-    if (!extractedText || extractedText.length < 50) {
-      throw new Error('Claude no pudo extraer texto suficiente');
-    }
-    
-    return {
-      content: extractedText,
-      extraction_method: 'claude_direct_pdf',
-      success: true,
-      confidence: 75,
-      processing_time_ms: Date.now() - startTime,
-      pdf_type: 'scanned',
-      source: 'claude_direct_analysis',
-      note: 'Análisis experimental directo con Claude'
-    };
-  }
-
-  /**
-   * Procesa PDF híbrido
-   */
-  static async processHybridLinux(buffer, fileName, analysis, startTime) {
-    try {
-      const images = await this.convertWithPdftoppm(buffer);
-      
-      if (images && images.length > 0) {
-        const ocrResult = await this.performOCR(images.slice(0, 5), {
-          document_type: 'hybrid_construction_document'
-        });
-        
-        const combinedText = this.combineTextSources(
-          analysis.extractedText, 
-          ocrResult.extracted_text
-        );
-        
-        return {
-          content: combinedText,
-          extraction_method: 'hybrid_pdftoppm_claude',
-          success: true,
-          confidence: Math.min(85, ocrResult.confidence || 80),
-          processing_time_ms: Date.now() - startTime,
-          pdf_type: 'hybrid'
-        };
-      }
-    } catch (error) {
-      console.warn('⚠️ OCR híbrido falló:', error.message);
-    }
-    
-    // Fallback a solo texto
-    return {
-      content: analysis.extractedText,
-      extraction_method: 'pdf_text_only',
-      success: true,
-      confidence: 70,
-      processing_time_ms: Date.now() - startTime,
-      pdf_type: 'hybrid_text_only',
-      warning: 'OCR no disponible, usando solo texto extraído'
-    };
-  }
-
-  /**
-   * OCR con Claude Vision
-   */
-  static async performOCR(images, config = {}) {
-    try {
-      if (!process.env.ANTHROPIC_API_KEY) {
-        throw new Error('API key de Anthropic no configurada');
-      }
-
-      console.log(`📤 Enviando ${images.length} imágenes a Claude Vision...`);
-
-      const prompt = `
-Extrae TODO el texto visible de estas imágenes de un presupuesto de construcción chileno.
-
-RESPONDER EN JSON:
-{
-  "extracted_text": "TEXTO COMPLETO PRESERVANDO FORMATO",
-  "confidence": número_entre_70_y_100,
-  "document_structure": {
-    "has_tables": true/false,
-    "has_totals": true/false,
-    "format_type": "budget|specs|quote|other"
-  }
-}
-
-Maximiza precisión en números y cantidades.
-`;
-
-      const messageContent = [
-        { type: 'text', text: prompt },
-        ...images.slice(0, 8)
-      ];
-
-      const response = await anthropic.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 8000,
-        temperature: 0.1,
-        messages: [{ role: 'user', content: messageContent }]
-      });
-
-      const analysisText = response.content[0].text;
-      
-      try {
-        const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          const result = JSON.parse(jsonMatch[0]);
-          console.log(`✅ OCR exitoso: ${result.extracted_text?.length || 0} caracteres`);
-          return result;
-        } else {
-          throw new Error('No JSON válido');
-        }
-      } catch (parseError) {
-        return {
-          extracted_text: analysisText,
-          confidence: 75,
-          document_structure: { format_type: 'unknown' },
-          parsing_error: true
-        };
-      }
-
-    } catch (error) {
-      console.error('❌ Error en performOCR:', error);
-      throw new Error(`Error en OCR: ${error.message}`);
-    }
-  }
-
-  /**
-   * Combina texto de múltiples fuentes
-   */
-  static combineTextSources(originalText, ocrText) {
-    if (!originalText) return ocrText || '';
-    if (!ocrText) return originalText;
-    
-    return ocrText + '\n\n--- TEXTO ADICIONAL ---\n' + originalText;
-  }
-
-  /**
-   * Diagnóstico específico para Linux
-   */
-  static async diagnoseLinux() {
-    console.log('🐧 Diagnóstico Linux...');
-    
-    const tools = {
-      pdftoppm: false,
-      imagemagick: false,
-      ghostscript: false
-    };
-    
-    try {
-      await execAsync('which pdftoppm');
-      tools.pdftoppm = true;
-      console.log('✅ pdftoppm disponible');
-    } catch {
-      console.warn('❌ pdftoppm no encontrado');
-    }
-    
-    try {
-      await execAsync('which convert');
-      tools.imagemagick = true;
-      console.log('✅ ImageMagick disponible');
-    } catch {
-      console.warn('❌ ImageMagick no encontrado');
-    }
-    
-    try {
-      await execAsync('which gs');
-      tools.ghostscript = true;
-      console.log('✅ Ghostscript disponible');
-    } catch {
-      console.warn('❌ Ghostscript no encontrado');
-    }
-    
-    return {
+    const diagnosis = {
       pdf_parse: !!pdfParse,
-      anthropic_key: !!process.env.ANTHROPIC_API_KEY,
+      anthropic_configured: !!config.anthropic.apiKey,
+      anthropic_model: config.anthropic.model,
       platform: process.platform,
-      tools,
-      recommended_install: !tools.pdftoppm ? 'sudo dnf install poppler-utils' : null
+      tools: {},
+      temp_directory: './temp'
     };
+    
+    // Verificar herramientas del sistema
+    const tools = ['pdftoppm', 'convert', 'gs'];
+    for (const tool of tools) {
+      try {
+        await execAsync(`which ${tool}`);
+        diagnosis.tools[tool] = true;
+        console.log(`✅ ${tool} disponible`);
+      } catch {
+        diagnosis.tools[tool] = false;
+        console.warn(`❌ ${tool} no encontrado`);
+      }
+    }
+    
+    // Verificar directorio temporal
+    try {
+      await fs.access('./temp');
+      diagnosis.temp_accessible = true;
+    } catch {
+      diagnosis.temp_accessible = false;
+      try {
+        await fs.mkdir('./temp', { recursive: true });
+        diagnosis.temp_accessible = true;
+        console.log('✅ Directorio temporal creado');
+      } catch (error) {
+        console.error('❌ No se pudo crear directorio temporal:', error);
+      }
+    }
+    
+    return diagnosis;
   }
 }

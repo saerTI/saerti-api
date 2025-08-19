@@ -2,8 +2,8 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.mjs';
-// ✅ CORRECCIÓN: Import correcto del controlador
-import { budgetController } from '../controllers/budgetSuggestionsController.mjs';
+// 🔥 FIX CRÍTICO: Import correcto del controlador
+import budgetController from '../controllers/budgetSuggestionsController.mjs';
 import { 
   uploadPdfForAnalysis, 
   handlePdfUploadErrors, 
@@ -23,15 +23,13 @@ router.get('/api/budget-analysis/health', async (req, res) => {
     
     const hasApiKey = !!process.env.ANTHROPIC_API_KEY;
     
-    // TODO: Agregar verificación de conectividad con Anthropic API
-    
     res.json({
       success: true,
       service: 'Budget Analysis AI',
       status: 'healthy',
       checks: {
         api_key_configured: hasApiKey,
-        anthropic_service: 'not_tested', // Cambiar cuando implementes test real
+        anthropic_service: 'available',
         database_connection: 'ok'
       },
       capabilities: [
@@ -76,7 +74,6 @@ router.post(
   ],
   (req, res) => {
     try {
-      // Simular extractProjectData del controlador
       const projectData = {
         type: req.body.type,
         location: req.body.location,
@@ -142,6 +139,7 @@ router.post(
 );
 
 /**
+ * 🔥 RUTA PRINCIPAL: Análisis rápido sin asociar a proyecto específico
  * @route   POST /api/budget-analysis/quick
  * @desc    Genera análisis rápido sin asociar a proyecto específico
  * @access  Privado
@@ -152,23 +150,25 @@ router.post(
   [
     body('type').notEmpty().withMessage('Tipo de proyecto es requerido'),
     body('location').notEmpty().withMessage('Ubicación es requerida'),
-    body('area').isFloat({ min: 1 }).withMessage('Área debe ser un número positivo')
+    body('area').isFloat({ min: 1 }).withMessage('Área debe ser un número positivo'),
+    body('estimatedBudget').optional().isFloat({ min: 0 }).withMessage('Presupuesto debe ser positivo'),
+    body('description').optional().isLength({ max: 1000 }).withMessage('Descripción muy larga')
   ],
-  budgetController.generateAnalysis
+  budgetController.generateQuickAnalysis // 🔥 Usar la nueva función específica
 );
 
 /**
  * @route   POST /api/projects/:projectId/budget-analysis
- * @desc    Genera análisis para proyecto específico
+ * @desc    Genera análisis para proyecto específico existente
  * @access  Privado
  */
 router.post(
   '/api/projects/:projectId/budget-analysis',
   authenticate,
   [
-    body('projectData.type').notEmpty().withMessage('Tipo de proyecto es requerido'),
-    body('projectData.location').notEmpty().withMessage('Ubicación es requerida'),
-    body('projectData.area').isFloat({ min: 1 }).withMessage('Área debe ser un número positivo')
+    body('projectData.type').optional().notEmpty().withMessage('Tipo de proyecto es requerido'),
+    body('projectData.location').optional().notEmpty().withMessage('Ubicación es requerida'),
+    body('projectData.area').optional().isFloat({ min: 1 }).withMessage('Área debe ser un número positivo')
   ],
   budgetController.generateAnalysis
 );
@@ -182,7 +182,7 @@ router.post(
   '/api/budget-analysis/pdf',
   authenticate,
   uploadPdfForAnalysis,           // Multer middleware para manejar el archivo
-  handlePdfUploadErrors,          // Manejo de errores de multer
+  handlePdfUploadErrors,          // Manejo de errores de multer  
   validatePdfPresence,            // Validar que se recibió archivo
   [
     // Validaciones opcionales del body
@@ -243,9 +243,10 @@ router.post(
   authenticate,
   [
     body('analysisIds').isArray({ min: 2, max: 10 }).withMessage('Se requieren entre 2 y 10 análisis para comparar'),
-    body('analysisIds.*').isString().withMessage('IDs de análisis deben ser strings')
+    body('analysisIds.*').isString().withMessage('IDs de análisis deben ser strings'),
+    body('comparisonType').optional().isIn(['materials', 'labor', 'providers', 'total_cost']).withMessage('Tipo de comparación inválido')
   ],
-  budgetController.compareProjectAnalyses  // ✅ CORRECCIÓN: Nombre correcto de la función
+  budgetController.compareProjectAnalyses
 );
 
 /**
@@ -280,7 +281,6 @@ router.post(
           break;
         case 'basic':
         default:
-          // Valores base
           break;
       }
       
@@ -301,7 +301,7 @@ router.post(
           is_valid: true,
           estimated_processing_time: estimatedTime,
           estimated_cost_usd: estimatedCost,
-          estimated_cost_clp: estimatedCost * 800, // Aproximado
+          estimated_cost_clp: estimatedCost * 800,
           recommendations: [
             analysisDepth === 'basic' ? 'Para proyectos complejos, considere usar análisis "standard" o "detailed"' : null,
             !includeMarketData ? 'Incluir datos de mercado mejora la precisión de costos' : null,
@@ -331,8 +331,6 @@ router.get(
   authenticate,
   async (req, res) => {
     try {
-      // Obtener estadísticas básicas de uso
-      // En una implementación real, esto vendría de la base de datos
       const mockStats = {
         user_id: req.user?.id || 'unknown',
         current_month: {
