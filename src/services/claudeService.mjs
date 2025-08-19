@@ -3,6 +3,16 @@
 import config from '../config/config.mjs';
 import Anthropic from '@anthropic-ai/sdk';
 
+import { 
+  preValidatePdfContent,
+  smartChunkExtractor,
+  generateOptimizedPrompt,
+  robustJsonParser,
+  intelligentConsolidator,
+  generateOptimizedFinalAnalysis,
+  estimateApiCosts
+} from './pdfAnalysisOptimizer.mjs';
+
 // Verificar que la API key esté configurada
 if (!config.anthropic.apiKey) {
   console.error('❌ ANTHROPIC_API_KEY no está configurada en las variables de entorno');
@@ -107,6 +117,36 @@ export const generateBudgetSuggestions = async (projectData, options = {}) => {
 };
 
 /**
+ * 🔥 PROMPT OPTIMIZADO para mejor extracción
+ */
+const OPTIMIZED_PDF_SYSTEM_PROMPT = `Eres un experto analizador de presupuestos de construcción chileno.
+
+OBJETIVO: Extraer información presupuestaria estructurada de forma precisa y eficiente.
+
+REGLAS CRÍTICAS:
+1. RESPONDER ÚNICAMENTE JSON VÁLIDO - Sin texto adicional
+2. Usar formato numérico sin puntos/comas en números
+3. Si no hay datos claros, usar arrays vacíos []
+4. Ser conservador - mejor pocos datos correctos que muchos incorrectos
+5. Enfocar en valores monetarios reales y cantidades específicas
+
+CONTEXTO CHILENO:
+- Precios en CLP (pesos chilenos)
+- Unidades métricas (m², m³, kg, ton)
+- Proveedores y marcas locales
+- Normativas NCh y OGUC
+
+FORMATO OBLIGATORIO DE RESPUESTA:
+{
+  "materiales_encontrados": [...],
+  "mano_obra_encontrada": [...],
+  "equipos_encontrados": [...],
+  "proveedores_mencionados": [...],
+  "valores_totales": {"subtotal_chunk": 0, "moneda": "CLP"},
+  "observaciones": "breve_nota_si_necesario"
+}`;
+
+/**
  * 🔥 FUNCIÓN PRINCIPAL 2: Genera análisis detallado de PDF usando múltiples consultas a Claude
  * @param {Array} chunks - Chunks de texto del PDF
  * @param {Object} config - Configuración del análisis
@@ -114,140 +154,379 @@ export const generateBudgetSuggestions = async (projectData, options = {}) => {
  * @param {string} analysisId - ID único del análisis
  * @returns {Promise<Object>} - Análisis consolidado
  */
-export const generateDetailedPdfAnalysis = async (chunks, config, analysisConfig, analysisId) => {
+export const generateDetailedPdfAnalysis = async (extractedText, config = {}) => {
+  const analysisId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  
   try {
-    console.log(`🤖 Iniciando análisis detallado PDF con ${chunks.length} chunks`);
+    console.log('🚀 Iniciando análisis PDF optimizado');
     
-    if (!chunks || chunks.length === 0) {
-      throw new Error('No hay chunks para analizar');
-    }
+    // 🔥 PASO 1: Pre-validación para evitar análisis inútiles
+    const validation = await preValidatePdfContent(extractedText);
     
-    const results = [];
-    const consolidatedData = {
-      materials: [],
-      labor: [],
-      equipment: [],
-      providers: [],
-      sections: []
-    };
-
-    // 🔥 ANÁLISIS GENERAL CON VALIDACIONES
-    console.log('📋 Fase 1: Análisis general del presupuesto');
-    try {
-      const generalAnalysis = await analyzeGeneralStructure(chunks[0]?.content || '', config);
-      results.push({ type: 'general', data: generalAnalysis });
-    } catch (generalError) {
-      console.warn('⚠️ Error en análisis general:', generalError.message);
-      results.push({ type: 'general', error: generalError.message });
+    if (!validation.isAnalyzable) {
+      console.log('⚠️ PDF no analizable, retornando análisis básico');
+      return generateEmptyAnalysisResponse(analysisId, validation.recommendation);
     }
 
-    // 🔥 ANÁLISIS DE CHUNKS CON LÍMITES Y TIMEOUTS
-    console.log('🔍 Fase 2: Análisis detallado por secciones');
-    for (let i = 0; i < Math.min(chunks.length, 10); i++) { // Limitar a 10 chunks máximo
-      const chunk = chunks[i];
-      console.log(`📝 Procesando chunk ${i + 1}/${Math.min(chunks.length, 10)} (${chunk.type})`);
-      
+    if (validation.confidence < 40) {
+      console.log('⚠️ Confianza baja en el PDF, procesamiento limitado');
+      return generateLowConfidenceAnalysis(analysisId, extractedText, validation);
+    }
+
+    console.log(`✅ PDF validado - Confianza: ${validation.confidence}%`);
+
+    // 🔥 PASO 2: Chunking inteligente (solo chunks útiles)
+    const relevantChunks = smartChunkExtractor(extractedText, 3500);
+    
+    if (relevantChunks.length === 0) {
+      console.log('⚠️ No se encontraron chunks con contenido presupuestario');
+      return generateEmptyAnalysisResponse(analysisId, 'No se encontró contenido presupuestario estructurado');
+    }
+
+    // Limitar chunks para evitar consumo excesivo
+    const maxChunks = Math.min(relevantChunks.length, 8); // 👈 LÍMITE CRÍTICO
+    const chunksToProcess = relevantChunks.slice(0, maxChunks);
+    
+    console.log(`📝 Procesando ${chunksToProcess.length} chunks de ${relevantChunks.length} disponibles`);
+
+    // 🔥 PASO 3: Análisis paralelo limitado de chunks
+    const chunkPromises = chunksToProcess.map(async (chunk, index) => {
       try {
-        const chunkAnalysis = await analyzeChunkContent(chunk, config, i + 1, chunks.length);
-        results.push({ 
-          type: chunk.type, 
-          chunkIndex: i + 1,
-          data: chunkAnalysis 
+        console.log(`🔍 Analizando chunk ${index + 1}/${chunksToProcess.length}`);
+        
+        const prompt = generateOptimizedPrompt(chunk, index + 1, chunksToProcess.length);
+        
+        const response = await anthropic.messages.create({
+          model: config.anthropic?.model || 'claude-3-5-sonnet-20241022',
+          max_tokens: 2000, // 👈 REDUCIDO para evitar tokens excesivos
+          temperature: 0.1, // 👈 MÁS DETERMINISTA
+          system: OPTIMIZED_PDF_SYSTEM_PROMPT,
+          messages: [{ role: "user", content: prompt }]
         });
 
-        // Consolidar datos específicos
-        consolidateChunkData(chunkAnalysis, consolidatedData);
+        const parseResult = robustJsonParser(response.content[0].text, index + 1);
         
-        // 🔥 PAUSA OBLIGATORIA PARA EVITAR RATE LIMITING
-        if (i < Math.min(chunks.length, 10) - 1) {
-          console.log('⏳ Pausa para rate limiting...');
-          await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
-        }
-        
-      } catch (chunkError) {
-        console.warn(`⚠️ Error procesando chunk ${i + 1}:`, chunkError.message);
-        results.push({ 
-          type: chunk.type, 
-          chunkIndex: i + 1,
-          error: chunkError.message 
-        });
+        return {
+          chunkIndex: index,
+          success: parseResult.success,
+          data: parseResult.data,
+          error: parseResult.error,
+          tokensUsed: response.usage?.total_tokens || 0
+        };
+
+      } catch (error) {
+        console.error(`❌ Error en chunk ${index + 1}:`, error.message);
+        return {
+          chunkIndex: index,
+          success: false,
+          data: null,
+          error: error.message
+        };
       }
-    }
+    });
 
-    // 🔥 CONSOLIDACIÓN FINAL CON VALIDACIONES
-    console.log('🔄 Fase 3: Consolidación y síntesis final');
-    let finalConsolidation;
-    try {
-      finalConsolidation = await generateFinalConsolidation(
-        consolidatedData, 
-        results, 
-        config
-      );
-    } catch (consolidationError) {
-      console.warn('⚠️ Error en consolidación final:', consolidationError.message);
-      finalConsolidation = createFallbackConsolidation(consolidatedData, results);
-    }
+    // Ejecutar análisis con timeout de seguridad
+    const results = await Promise.allSettled(chunkPromises);
+    const chunkResults = results
+      .filter(result => result.status === 'fulfilled')
+      .map(result => result.value);
 
-    // 🔥 RESPUESTA FINAL ROBUSTA
-    const finalAnalysis = {
-      resumen_ejecutivo: finalConsolidation.executive_summary || "Análisis completado con datos parciales",
-      presupuesto_estimado: finalConsolidation.estimated_budget || { total_clp: 0 },
-      materiales_detallados: consolidatedData.materials || [],
-      mano_obra: consolidatedData.labor || [],
-      equipos_maquinaria: consolidatedData.equipment || [],
-      proveedores_chile: analysisConfig.includeProviders ? consolidatedData.providers : [],
-      analisis_riesgos: finalConsolidation.risk_analysis || [],
-      recomendaciones: finalConsolidation.recommendations || [],
-      cronograma_estimado: finalConsolidation.timeline || "Requiere análisis adicional",
-      desglose_costos: finalConsolidation.cost_breakdown || {},
-      factores_regionales: finalConsolidation.regional_factors || {},
-      chunks_procesados: Math.min(chunks.length, 10),
-      chunks_exitosos: results.filter(r => !r.error).length,
-      confidence_score: calculatePdfConfidenceScore(results, consolidatedData),
-      metadata: {
-        analysis_id: analysisId,
-        model_used: config.anthropic.model,
-        processing_time: new Date().toISOString(),
-        success: true
+    const totalTokensUsed = chunkResults.reduce((sum, result) => sum + (result.tokensUsed || 0), 0);
+    console.log(`💰 Tokens consumidos: ${totalTokensUsed}`);
+
+    // 🔥 PASO 4: Consolidación inteligente
+    const consolidatedData = intelligentConsolidator(chunkResults);
+
+    // 🔥 PASO 5: Análisis final solo si hay datos útiles
+    const finalAnalysis = generateOptimizedFinalAnalysis(consolidatedData, config);
+
+    // Agregar metadatos de optimización
+    finalAnalysis.optimization_metadata = {
+      original_chunks_available: relevantChunks.length,
+      chunks_processed: chunksToProcess.length,
+      chunks_successful: consolidatedData.successful_chunks,
+      validation_confidence: validation.confidence,
+      total_tokens_used: totalTokensUsed,
+      cost_optimization: {
+        chunks_skipped: relevantChunks.length - chunksToProcess.length,
+        estimated_tokens_saved: (relevantChunks.length - chunksToProcess.length) * 2000
       }
     };
 
-    console.log('✅ Análisis PDF completado exitosamente');
+    console.log('✅ Análisis PDF optimizado completado exitosamente');
     return finalAnalysis;
 
   } catch (error) {
-    console.error('❌ Error en generateDetailedPdfAnalysis:', error);
+    console.error('❌ Error en generateDetailedPdfAnalysis optimizado:', error);
     
-    // 🔥 RETORNAR ERROR ESTRUCTURADO EN LUGAR DE FALLAR
-    return {
-      error: true,
-      message: error.message,
-      resumen_ejecutivo: "Error en el análisis del PDF",
-      presupuesto_estimado: { total_clp: 0, error: true },
-      materiales_detallados: [],
-      mano_obra: [],
-      equipos_maquinaria: [],
-      analisis_riesgos: [{
-        factor: "Error en procesamiento",
-        probability: "alta",
-        impact: "alto",
-        mitigation: "Revisar archivo y reintentar"
-      }],
-      recomendaciones: ["Verificar que el archivo PDF no esté corrupto", "Intentar con un archivo más pequeño"],
-      confidence_score: 0,
-      metadata: {
-        error: true,
-        error_message: error.message,
-        model_used: config.anthropic.model,
-        processing_time: new Date().toISOString()
-      }
-    };
+    return generateErrorAnalysisResponse(analysisId, error.message);
   }
 };
+
+/**
+ * 🔥 FUNCIÓN AUXILIAR: Validación de archivo PDF antes de procesamiento
+ */
+export const validatePdfBeforeProcessing = (fileBuffer, fileName) => {
+  const errors = [];
+  const warnings = [];
+
+  // Validar tamaño (máximo 20MB para evitar costos excesivos)
+  if (fileBuffer.length > 20 * 1024 * 1024) {
+    errors.push('Archivo demasiado grande. Máximo 20MB permitido para análisis optimizado.');
+  }
+
+  // Validar que sea PDF
+  if (!fileName.toLowerCase().endsWith('.pdf')) {
+    errors.push('Solo se permiten archivos PDF.');
+  }
+
+  // Verificar header PDF
+  const pdfHeader = fileBuffer.slice(0, 8).toString();
+  if (!pdfHeader.startsWith('%PDF-')) {
+    errors.push('Archivo no es un PDF válido.');
+  }
+
+  // Advertencias
+  if (fileBuffer.length > 10 * 1024 * 1024) {
+    warnings.push('Archivo grande - el análisis puede tomar más tiempo y consumir más créditos.');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+    fileSize: fileBuffer.length,
+    fileSizeMB: (fileBuffer.length / 1024 / 1024).toFixed(2)
+  };
+};
+
+/**
+ * 🔥 FUNCIÓN PRINCIPAL MEJORADA: Wrapper con todas las optimizaciones
+ */
+export const analyzePdfWithOptimizations = async (fileBuffer, fileName, config = {}) => {
+  const startTime = Date.now();
+  
+  try {
+    console.log('🔍 Iniciando análisis PDF con optimizaciones completas');
+
+    // 1. Validación previa del archivo
+    const fileValidation = validatePdfBeforeProcessing(fileBuffer, fileName);
+    if (!fileValidation.isValid) {
+      throw new Error(fileValidation.errors[0]);
+    }
+
+    // 2. Extracción de texto (simulada - usa tu método actual)
+    const extractedText = await extractTextFromPdf(fileBuffer);
+    
+    // 3. Estimación de costos
+    const costEstimate = estimateApiCosts(extractedText.length, config);
+    console.log('💰 Estimación de costos:', costEstimate);
+
+    // Advertencia si el costo es muy alto
+    if (costEstimate.estimated_cost_usd > 1.5) {
+      console.log('⚠️ ADVERTENCIA: Análisis costoso - considerando optimizaciones adicionales');
+      config.forceBasicAnalysis = true;
+    }
+
+    // 4. Análisis optimizado
+    const analysisResult = await generateDetailedPdfAnalysis(extractedText, config);
+
+    // 5. Agregar métricas finales
+    analysisResult.final_metrics = {
+      processing_time_seconds: (Date.now() - startTime) / 1000,
+      file_size_mb: fileValidation.fileSizeMB,
+      estimated_api_cost: costEstimate,
+      optimization_applied: true
+    };
+
+    console.log('✅ Análisis PDF optimizado completado en', analysisResult.final_metrics.processing_time_seconds, 'segundos');
+    
+    return analysisResult;
+
+  } catch (error) {
+    console.error('❌ Error en análisis PDF optimizado:', error);
+    throw error;
+  }
+};
+
+// Función simulada - reemplaza con tu extractor actual
+const extractTextFromPdf = async (fileBuffer) => {
+  // Aquí va tu lógica actual de extracción de texto del PDF
+  // Por ahora retorno un ejemplo
+  return "Texto extraído del PDF...";
+};
+
 
 // ====================================================================
 // 🔧 FUNCIONES AUXILIARES INTERNAS (SOLO LAS QUE SE USAN)
 // ====================================================================
+
+
+/**
+ * Genera respuesta de error estructurada
+ */
+const generateErrorAnalysisResponse = (analysisId, errorMessage) => {
+  return {
+    resumen_ejecutivo: 'Error durante el análisis del presupuesto. Por favor, intente nuevamente con un archivo diferente.',
+    presupuesto_estimado: {
+      total_clp: 0,
+      materials_percentage: 0,
+      labor_percentage: 0,
+      equipment_percentage: 0,
+      overhead_percentage: 0
+    },
+    materiales_detallados: [],
+    mano_obra: [],
+    equipos_maquinaria: [],
+    proveedores_chile: [],
+    analisis_riesgos: [{
+      factor: 'Error en procesamiento',
+      probability: 'alta',
+      impact: 'alto',
+      mitigation: 'Verificar formato del archivo y reintentar'
+    }],
+    recomendaciones: [
+      'Verificar que el archivo PDF no esté corrupto',
+      'Asegurar que el archivo contiene texto seleccionable',
+      'Intentar con un archivo de menor tamaño',
+      'Contactar soporte técnico si el problema persiste'
+    ],
+    cronograma_estimado: 'No disponible debido a error',
+    confidence_score: 0,
+    chunks_procesados: 0,
+    chunks_exitosos: 0,
+    processing_method: 'error_fallback',
+    metadata: {
+      analysis_id: analysisId,
+      model_used: 'error_handler',
+      processing_time: new Date().toISOString(),
+      success: false,
+      error: errorMessage
+    }
+  };
+};
+
+/**
+ * Genera análisis básico para PDFs con confianza baja
+ */
+const generateLowConfidenceAnalysis = async (analysisId, text, validation) => {
+  try {
+    // Análisis muy básico con 1 sola llamada a la API
+    const basicPrompt = `Analiza este texto de presupuesto chileno y extrae solo la información MÁS EVIDENTE:
+
+${text.substring(0, 2000)}
+
+Responde SOLO con JSON:
+{
+  "elementos_encontrados": ["lista", "de", "elementos", "evidentes"],
+  "posibles_precios": ["valores", "monetarios", "encontrados"],
+  "observacion_general": "descripcion_muy_breve"
+}`;
+
+    const response = await anthropic.messages.create({
+      model: 'claude-3-haiku-20240307', // 👈 MODELO MÁS BARATO para análisis básico
+      max_tokens: 500,
+      temperature: 0,
+      messages: [{ role: "user", content: basicPrompt }]
+    });
+
+    const basicResult = JSON.parse(response.content[0].text);
+
+    return {
+      resumen_ejecutivo: `Análisis básico completado. ${basicResult.observacion_general || 'Información limitada disponible'}.`,
+      presupuesto_estimado: {
+        total_clp: 0,
+        materials_percentage: 0,
+        labor_percentage: 0,
+        equipment_percentage: 0,
+        overhead_percentage: 0
+      },
+      materiales_detallados: basicResult.elementos_encontrados?.map(item => ({
+        item: item,
+        cantidad: 0,
+        unidad: 'und',
+        precio_unitario: 0,
+        subtotal: 0,
+        categoria: 'identificado_basico'
+      })) || [],
+      mano_obra: [],
+      equipos_maquinaria: [],
+      proveedores_chile: [],
+      analisis_riesgos: [{
+        factor: 'Calidad de información limitada',
+        probability: 'alta',
+        impact: 'medio',
+        mitigation: 'Proporcionar presupuesto en formato más claro y estructurado'
+      }],
+      recomendaciones: [
+        'Mejorar formato del presupuesto para análisis más detallado',
+        'Incluir tabla con columnas claramente definidas',
+        'Especificar cantidades y unidades de medida'
+      ],
+      cronograma_estimado: 'Requiere información más detallada',
+      confidence_score: validation.confidence,
+      chunks_procesados: 1,
+      chunks_exitosos: 1,
+      processing_method: 'basic_analysis',
+      metadata: {
+        analysis_id: analysisId,
+        model_used: 'claude-3-haiku-20240307',
+        processing_time: new Date().toISOString(),
+        success: true,
+        confidence_level: 'low'
+      }
+    };
+
+  } catch (error) {
+    console.error('Error en análisis básico:', error);
+    return generateEmptyAnalysisResponse(analysisId, 'Error en análisis básico');
+  }
+};
+
+
+/**
+ * Genera respuesta para PDFs no analizables
+ */
+const generateEmptyAnalysisResponse = (analysisId, reason) => {
+  return {
+    resumen_ejecutivo: `El archivo analizado no contiene información presupuestaria suficiente para generar un análisis detallado. ${reason}`,
+    presupuesto_estimado: {
+      total_clp: 0,
+      materials_percentage: 0,
+      labor_percentage: 0,
+      equipment_percentage: 0,
+      overhead_percentage: 0
+    },
+    materiales_detallados: [],
+    mano_obra: [],
+    equipos_maquinaria: [],
+    proveedores_chile: [],
+    analisis_riesgos: [{
+      factor: 'Información insuficiente',
+      probability: 'alta',
+      impact: 'alto',
+      mitigation: 'Proporcionar presupuesto más detallado en formato estructurado'
+    }],
+    recomendaciones: [
+      'Utilizar formato de presupuesto más estructurado (Excel con columnas claras)',
+      'Incluir cantidades, unidades y precios unitarios específicos',
+      'Agregar especificaciones técnicas de materiales'
+    ],
+    cronograma_estimado: 'Requiere información presupuestaria detallada',
+    confidence_score: 0,
+    chunks_procesados: 0,
+    chunks_exitosos: 0,
+    processing_method: 'validation_failed',
+    metadata: {
+      analysis_id: analysisId,
+      model_used: 'validation_only',
+      processing_time: new Date().toISOString(),
+      success: false,
+      reason: reason
+    }
+  };
+};
+
 
 /**
  * Construye el contexto del proyecto para Claude

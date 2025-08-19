@@ -1,7 +1,9 @@
 // src/controllers/budgetSuggestionsController.mjs
 // 🔥 VERSIÓN LIMPIA - SOLO MÉTODOS UTILIZADOS EN LAS RUTAS
 
-import { generateBudgetSuggestions, generateDetailedPdfAnalysis } from '../services/claudeService.mjs';
+import { generateBudgetSuggestions,
+  generateDetailedPdfAnalysis,
+  analyzePdfWithOptimizations } from '../services/claudeService.mjs';
 import config from '../config/config.mjs';
 import { PdfExtractionService } from '../services/pdfExtractionService.mjs';
 import { validationResult } from 'express-validator';
@@ -21,6 +23,8 @@ import {
   generatePdfComparison,
   createIntelligentChunks
 } from '../utils/budgetAnalysisUtils.mjs';
+import { estimateApiCosts,
+  estimateCostFromFileSize, } from '../services/pdfAnalysisOptimizer.mjs';
 
 const budgetController = {
   
@@ -280,6 +284,94 @@ const budgetController = {
       next(error);
     }
   },
+  async executeAnalysisSimplified(file, config) {
+    try {
+      console.log('🚀 Iniciando análisis simplificado...');
+      
+      // Opción 1: Usar pdf-parse directamente (más simple)
+      let extractedText = '';
+      
+      try {
+        // Intentar con pdf-parse básico
+        const pdfModule = await import('pdf-parse');
+        const pdfParse = pdfModule.default;
+        
+        const pdfData = await pdfParse(file.buffer);
+        extractedText = pdfData.text || '';
+        
+        console.log(`📖 Texto extraído con pdf-parse: ${extractedText.length} caracteres`);
+        
+      } catch (pdfError) {
+        console.warn('⚠️ pdf-parse falló, usando análisis básico:', pdfError.message);
+        
+        // Fallback: generar análisis con información básica del archivo
+        extractedText = `ARCHIVO: ${file.originalname}
+  TAMAÑO: ${(file.size / 1024 / 1024).toFixed(2)} MB
+  TIPO: ${file.mimetype}
+
+  NOTA: No se pudo extraer texto del PDF. Análisis limitado basado en metadatos del archivo.`;
+      }
+      
+      // Si no hay texto suficiente, crear análisis básico
+      if (extractedText.length < 100) {
+        return {
+          resumen_ejecutivo: `Análisis limitado del archivo ${file.originalname}. No se pudo extraer texto suficiente para análisis detallado.`,
+          presupuesto_estimado: {
+            total_clp: 0,
+            materials_percentage: 0,
+            labor_percentage: 0,
+            equipment_percentage: 0,
+            overhead_percentage: 0
+          },
+          materiales_detallados: [],
+          mano_obra: [],
+          equipos_maquinaria: [],
+          proveedores_chile: [],
+          analisis_riesgos: [{
+            factor: 'Extracción de texto insuficiente',
+            probability: 'alta',
+            impact: 'alto',
+            mitigation: 'Verificar que el PDF contiene texto seleccionable o usar OCR'
+          }],
+          recomendaciones: [
+            'Verificar que el PDF no es una imagen escaneada',
+            'Usar herramientas de OCR si es necesario',
+            'Proporcionar archivo en formato editable (Word, Excel)'
+          ],
+          cronograma_estimado: 'Requiere extracción de datos exitosa',
+          confidence_score: 10,
+          chunks_procesados: 0,
+          chunks_exitosos: 0,
+          processing_method: 'basic_fallback',
+          extraction_metadata: {
+            extraction_method: 'failed_extraction',
+            confidence: 10,
+            source: 'file_metadata_only',
+            content_length: extractedText.length,
+            processing_time_ms: Date.now() - Date.now()
+          }
+        };
+      }
+      
+      // Análisis normal con el texto extraído
+      const analysisResult = await generateDetailedPdfAnalysis(extractedText, config);
+      
+      // Agregar metadatos
+      analysisResult.extraction_metadata = {
+        extraction_method: 'pdf_parse_basic',
+        confidence: extractedText.length > 1000 ? 85 : 60,
+        source: 'pdf_parse',
+        content_length: extractedText.length,
+        processing_time_ms: Date.now() - Date.now()
+      };
+      
+      return analysisResult;
+      
+    } catch (error) {
+      console.error('❌ Error en análisis simplificado:', error);
+      throw error;
+    }
+  },
 
   /**
    * 🔥 MÉTODO 3: Análisis de PDF con estrategia optimizada
@@ -287,189 +379,171 @@ const budgetController = {
    */
   async analyzePdfBudget(req, res, next) {
     try {
-      console.log('📄 Iniciando análisis PDF optimizado');
+      console.log('📄 Iniciando análisis PDF con optimizaciones anti-desperdicio');
       
       // Validar archivo subido
-      const fileErrors = validatePdfFile(req.file);
-      if (fileErrors.length > 0) {
+      if (!req.file) {
         return res.status(400).json({
           success: false,
-          message: fileErrors[0],
-          error_code: 'INVALID_FILE',
+          message: 'No se recibió archivo PDF',
+          error_code: 'NO_FILE',
           timestamp: new Date().toISOString()
         });
       }
 
-      // Validar datos adicionales del request
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Datos de entrada inválidos',
-          errors: errors.array(),
-          timestamp: new Date().toISOString()
-        });
-      }
+      // 🔥 CORRECCIÓN: Usar función correcta para estimación
+      const costEstimate = req.costEstimate || estimateCostFromFileSize(req.file.size);
+      console.log(`💰 Costo estimado corregido: $${costEstimate.estimated_cost_usd?.toFixed(3) || costEstimate.toFixed(3)} USD`);
 
-      const analysisId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const analysisConfig = processAnalysisConfig(req.body);
-
-      const fileInfo = {
-        name: req.file.originalname,
-        size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
-        type: req.file.mimetype,
-        sizeBytes: req.file.size
+      // 🔥 CORRECCIÓN: Configuración optimizada basada en el costo
+      const analysisConfig = {
+        ...processAnalysisConfig(req.body),
+        maxCostUsd: req.maxAllowedCost || 2.0,
+        forceOptimization: true,
+        anthropic: {
+          model: (costEstimate.estimated_cost_usd || costEstimate) > 1.0 
+            ? 'claude-3-haiku-20240307'  // Modelo más barato para archivos grandes
+            : 'claude-3-5-sonnet-20241022' // Modelo normal para archivos pequeños
+        }
       };
 
-      console.log('📁 Archivo recibido:', fileInfo);
+      console.log(`🎯 Usando modelo: ${analysisConfig.anthropic.model}`);
 
-      // Extracción optimizada
-      let contentResult;
-      try {
-        console.log('🚀 Iniciando extracción optimizada...');
-        
-        const extractionStart = Date.now();
-        
-        contentResult = await PdfExtractionService.extractContent(
-          req.file.buffer, 
-          req.file.originalname
-        );
-        
-        const extractionTime = Date.now() - extractionStart;
-        console.log(`✅ Extracción completada en ${extractionTime}ms: ${contentResult.extraction_method}`);
-        
-      } catch (pdfError) {
-        console.error('❌ Error en extracción PDF:', pdfError);
-        
-        const errorInfo = handlePdfAnalysisError(pdfError);
-        return res.status(errorInfo.status).json({
-          success: false,
-          message: errorInfo.message,
-          error_code: errorInfo.error_code,
-          file_info: fileInfo,
-          suggestions: [
-            'Verifique que el archivo no esté corrupto',
-            'Para PDFs muy grandes (>30MB), considere dividir el documento',
-            'Asegúrese de que el PDF no esté protegido con contraseña'
-          ],
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const pdfContent = contentResult.content;
-      const extractionMetadata = createExtractionMetadata(contentResult);
-
-      console.log(`📝 Contenido extraído: ${pdfContent.length} caracteres`);
-      console.log(`🎯 Método de extracción: ${contentResult.extraction_method}`);
-
-      // Análisis según método de extracción
+      // 🔥 CORRECCIÓN: Ejecutar análisis con extracción incluida
       let analysisResult;
       
-      if (contentResult.extraction_method === 'claude_vision_direct_pdf') {
-        // PDF ya analizado por Claude Vision
-        console.log('🎯 PDF ya analizado completamente por Claude Vision');
+      try {
+        // Intentar con el servicio completo
+        analysisResult = await this.executeAnalysis(req.file, analysisConfig);
+      } catch (extractionError) {
+        console.warn('⚠️ Servicio completo falló, usando método simplificado:', extractionError.message);
         
-        analysisResult = {
-          resumen_ejecutivo: "Análisis completado usando Claude Vision directamente sobre el PDF",
-          presupuesto_estimado: contentResult.metadata?.budget_summary || { total_clp: 0 },
-          materiales_detallados: contentResult.metadata?.detailed_items?.filter(item => 
-            item.categoria === 'materiales' || 
-            item.item?.toLowerCase().includes('material')) || [],
-          mano_obra: contentResult.metadata?.detailed_items?.filter(item => 
-            item.categoria === 'mano_obra' || 
-            item.item?.toLowerCase().includes('mano')) || [],
-          equipos_maquinaria: contentResult.metadata?.detailed_items?.filter(item => 
-            item.categoria === 'equipos' || 
-            item.item?.toLowerCase().includes('equipo')) || [],
-          proveedores_chile: [],
-          analisis_riesgos: [{
-            factor: "Análisis basado en extracción automática",
-            probability: "baja",
-            impact: "medio",
-            mitigation: "Validar datos extraídos manualmente"
-          }],
-          recomendaciones: [
-            "Verificar precios con proveedores actuales",
-            "Validar cantidades y unidades de medida",
-            "Confirmar especificaciones técnicas"
-          ],
-          cronograma_estimado: "Requiere información adicional del proyecto",
-          desglose_costos: contentResult.metadata?.totals_by_section || {},
-          factores_regionales: {
-            climaticos: "Considerar condiciones climáticas de la región",
-            logisticos: "Evaluar costos de transporte",
-            normativos: "Verificar regulaciones locales"
-          },
-          extraction_metadata: extractionMetadata,
-          confidence_score: contentResult.confidence || 85,
-          processing_method: 'claude_vision_complete'
-        };
-        
-      } else {
-        // Usar análisis tradicional con chunking
-        console.log('🔄 Usando análisis tradicional con chunking...');
-        
-        const chunks = await createIntelligentChunks(pdfContent);
-        console.log(`🧩 ${chunks.length} chunks creados para análisis`);
-        
-        analysisResult = await generateDetailedPdfAnalysis(
-          chunks, 
-          config, 
-          analysisConfig,
-          analysisId
-        );
-        
-        analysisResult.extraction_metadata = extractionMetadata;
-        analysisResult.processing_method = 'traditional_chunking';
+        // Fallback al método simplificado
+        analysisResult = await this.executeAnalysisSimplified(req.file, analysisConfig);
       }
 
-      // Guardar resultado
-      if (req.body.saveAnalysis !== false) {
-        try {
-          await savePdfAnalysisToDatabase(analysisId, analysisResult, req.user?.id);
-          console.log('💾 Análisis PDF guardado en base de datos');
-        } catch (saveError) {
-          console.warn('⚠️ Error guardando análisis PDF:', saveError.message);
-        }
-      }
-
-      // Incrementar contador de uso
-      if (req.user?.id) {
-        await incrementUserUsage(req.user.id, 'pdf_analysis');
-      }
-
-      // Respuesta optimizada
-      res.json({
+      // 🔥 CORRECCIÓN: Mejorar respuesta con métricas de optimización
+      const response = {
         success: true,
-        message: 'Análisis PDF completado exitosamente',
+        message: 'Análisis PDF completado con optimizaciones',
         data: {
-          analysisId,
           analysis: analysisResult,
           metadata: {
+            analysisId: analysisResult.metadata?.analysis_id || `pdf_${Date.now()}`,
             originalFileSize: req.file.size,
             originalFileName: req.file.originalname,
-            contentLength: pdfContent.length,
+            contentLength: analysisResult.extraction_metadata?.content_length || 0,
             processingTime: new Date().toISOString(),
-            extraction: extractionMetadata,
-            processing_method: analysisResult.processing_method
+            extraction: {
+              method: analysisResult.processing_method || 'optimized',
+              confidence: analysisResult.confidence_score || 0,
+              chunks_processed: analysisResult.chunks_procesados || 0,
+              chunks_successful: analysisResult.chunks_exitosos || 0
+            },
+            optimization: {
+              cost_estimate_usd: costEstimate.estimated_cost_usd || costEstimate,
+              cost_estimate_clp: costEstimate.estimated_cost_clp || (costEstimate * 950),
+              model_used: analysisConfig.anthropic.model,
+              optimization_applied: true,
+              cost_warning: costEstimate.cost_warning || 'N/A'
+            }
           }
         },
         timestamp: new Date().toISOString()
+      };
+
+      // 📊 LOG DETALLADO PARA MONITOREO
+      console.log('✅ Análisis completado:', {
+        archivo: req.file.originalname,
+        tamaño: `${(req.file.size / 1024 / 1024).toFixed(2)}MB`,
+        confianza: `${analysisResult.confidence_score}%`,
+        materiales: analysisResult.materiales_detallados?.length || 0,
+        mano_obra: analysisResult.mano_obra?.length || 0,
+        equipos: analysisResult.equipos_maquinaria?.length || 0,
+        costo_estimado: `$${(costEstimate.estimated_cost_usd || costEstimate).toFixed(3)} USD`,
+        modelo: analysisConfig.anthropic.model
       });
 
-      console.log(`✅ Análisis PDF completado: ${extractionMetadata.extraction_method}`);
+      res.json(response);
 
     } catch (error) {
-      console.error('❌ Error crítico en analyzePdfBudget:', error);
-      
-      res.status(500).json({
+      console.error('❌ Error en análisis PDF optimizado:', error);
+
+      // 🔥 MANEJO DE ERRORES MEJORADO
+      let errorMessage = 'Error interno en análisis PDF';
+      let errorCode = 'ANALYSIS_ERROR';
+
+      if (error.message.includes('413') || error.message.includes('grande')) {
+        errorMessage = `Archivo demasiado grande (${(req.file?.size / 1024 / 1024).toFixed(1)}MB). Máximo 20MB.`;
+        errorCode = 'FILE_TOO_LARGE';
+      } else if (error.message.includes('415') || error.message.includes('formato')) {
+        errorMessage = 'Solo se permiten archivos PDF válidos.';
+        errorCode = 'INVALID_FORMAT';
+      } else if (error.message.includes('429') || error.message.includes('límite')) {
+        errorMessage = 'Límite de API alcanzado. Intente en 5 minutos.';
+        errorCode = 'RATE_LIMIT';
+      } else if (error.message.includes('COST_LIMIT')) {
+        errorMessage = error.message;
+        errorCode = 'COST_LIMIT_EXCEEDED';
+      } else if (error.message.includes('extractContent') || error.message.includes('PDF')) {
+        errorMessage = 'Error procesando archivo PDF. Verifique que el archivo no esté corrupto.';
+        errorCode = 'PDF_PROCESSING_ERROR';
+      }
+
+      res.status(error.message.includes('400') ? 400 : 500).json({
         success: false,
-        message: 'Error interno en análisis PDF',
-        error_code: 'CRITICAL_PDF_ERROR',
+        message: errorMessage,
+        error_code: errorCode,
         timestamp: new Date().toISOString()
       });
 
       next(error);
+    }
+  },
+  async executeAnalysis(file, config) {
+    try {
+      console.log('🚀 Iniciando executeAnalysis con extracción de PDF...');
+      
+      // 🔥 PASO 1: EXTRAER TEXTO DEL PDF usando tu servicio existente
+      const contentResult = await PdfExtractionService.extractContent(file.buffer, file.originalname);
+      
+      if (!contentResult || !contentResult.content) {
+        throw new Error('No se pudo extraer contenido del PDF');
+      }
+      
+      const extractedText = contentResult.content;
+      console.log(`📊 Texto extraído: ${extractedText.length} caracteres`);
+      
+      // 🔥 PASO 2: ANÁLISIS con Claude usando el texto extraído
+      const analysisResult = await generateDetailedPdfAnalysis(extractedText, config);
+      
+      // 🔥 PASO 3: Agregar metadatos de extracción
+      analysisResult.extraction_metadata = {
+        extraction_method: contentResult.extraction_method || 'pdf_extraction_service',
+        confidence: contentResult.confidence || 85,
+        source: contentResult.source || 'pdf_parser',
+        content_length: extractedText.length,
+        processing_time_ms: contentResult.processing_time_ms || 0,
+        pdf_type: contentResult.pdf_type || 'standard',
+        items_extracted: contentResult.items_extracted || 0
+      };
+      
+      console.log('✅ executeAnalysis completado exitosamente');
+      return analysisResult;
+      
+    } catch (error) {
+      console.error('❌ Error en executeAnalysis:', error);
+      
+      // Manejo específico de errores de extracción
+      if (error.message.includes('extractContent') || error.message.includes('PDF')) {
+        throw new Error(`Error extrayendo PDF: ${error.message}`);
+      }
+      
+      if (error.message.includes('generateDetailedPdfAnalysis')) {
+        throw new Error(`Error en análisis de contenido: ${error.message}`);
+      }
+      
+      throw error;
     }
   },
 
