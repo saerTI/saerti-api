@@ -1,23 +1,14 @@
 // src/controllers/budgetSuggestionsController.mjs
 import { generateBudgetSuggestions, generateDetailedPdfAnalysis } from '../services/claudeService.mjs';
+import { PdfExtractionService } from '../services/pdfExtractionService.mjs';
 import { validationResult } from 'express-validator';
-
-// ✅ IMPORT DINÁMICO PARA EVITAR ERRORES DE INICIALIZACIÓN
-let pdfParse;
-try {
-  const pdfModule = await import('pdf-parse');
-  pdfParse = pdfModule.default;
-} catch (error) {
-  console.error('❌ Error cargando pdf-parse:', error);
-  // Fallback: usar una función que lance error descriptivo
-  pdfParse = () => {
-    throw new Error('PDF parsing no disponible. Instale pdf-parse@1.1.1');
-  };
-}
-
 import {
   extractProjectData,
   validateProjectData,
+  processAnalysisConfig,
+  validatePdfFile,
+  createExtractionMetadata,
+  handlePdfAnalysisError,
   saveAnalysisToDatabase,
   savePdfAnalysisToDatabase,
   getPdfAnalysisFromDatabase,
@@ -28,62 +19,15 @@ import {
   createIntelligentChunks
 } from '../utils/budgetAnalysisUtils.mjs';
 
-/**
- * Función auxiliar para extraer texto PDF con manejo robusto de errores
- */
-async function extractPdfText(buffer) {
-  if (!pdfParse || typeof pdfParse !== 'function') {
-    throw new Error('PDF parsing service not available');
-  }
-
-  try {
-    console.log('📝 Extrayendo texto del PDF...');
-    const pdfData = await pdfParse(buffer);
-    
-    if (!pdfData || !pdfData.text) {
-      throw new Error('No se pudo extraer texto del PDF');
-    }
-    
-    const textLength = pdfData.text.length;
-    console.log(`📝 Texto extraído: ${textLength} caracteres`);
-    
-    if (textLength < 100) {
-      throw new Error('PDF contiene muy poco texto (posiblemente solo imágenes)');
-    }
-    
-    return pdfData.text;
-  } catch (error) {
-    console.error('❌ Error en extracción PDF:', error);
-    
-    // Mejorar mensajes de error para el usuario
-    if (error.message.includes('not available')) {
-      throw new Error('Servicio de análisis PDF temporalmente no disponible');
-    }
-    
-    if (error.message.includes('Invalid PDF')) {
-      throw new Error('Archivo PDF corrupto o inválido');
-    }
-    
-    if (error.message.includes('Password')) {
-      throw new Error('PDF protegido con contraseña no soportado');
-    }
-    
-    throw new Error('Error procesando archivo PDF. Verifique que el archivo no esté dañado');
-  }
-}
-
-/**
- * Controlador para generar sugerencias presupuestarias con IA
- */
-export default {
+export const budgetController = {
   /**
-   * Genera análisis presupuestario para un proyecto
+   * Genera análisis presupuestario basado en datos del proyecto
    */
   async generateAnalysis(req, res, next) {
     try {
-      console.log('🎯 Iniciando análisis presupuestario para proyecto:', req.params.projectId);
+      console.log(`📊 Iniciando análisis para proyecto: ${req.params.projectId}`);
       
-      // Validar errores de input
+      // Validaciones de entrada
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -94,40 +38,40 @@ export default {
         });
       }
 
-      // Extraer datos del proyecto del request
-      const projectData = extractProjectData(req);
+      // Extraer y validar datos del proyecto
+      const projectData = await extractProjectData(req.params.projectId);
+      const validationErrors = validateProjectData(projectData);
       
-      // Validar datos mínimos requeridos
-      const validation = validateProjectData(projectData);
-      if (!validation.isValid) {
+      if (validationErrors.length > 0) {
         return res.status(400).json({
           success: false,
-          message: 'Datos insuficientes para análisis',
-          missing_fields: validation.missingFields,
-          recommendations: validation.recommendations,
+          message: 'Datos del proyecto incompletos',
+          errors: validationErrors,
           timestamp: new Date().toISOString()
         });
       }
 
       // Configurar opciones de análisis
       const analysisOptions = {
-        includeMarketData: req.body.includeMarketData !== false,
-        includeHistoricalData: req.body.includeHistoricalData || false,
-        analysisDepth: req.body.analysisDepth || 'standard'
+        includeMarketRates: req.body.includeMarketRates !== false,
+        includeProviders: req.body.includeProviders !== false,
+        analysisDepth: req.body.analysisDepth || 'standard',
+        projectType: projectData.type || 'general',
+        location: projectData.location || 'Chile'
       };
 
-      console.log('📊 Configuración de análisis:', analysisOptions);
+      console.log('⚙️ Opciones de análisis:', analysisOptions);
 
-      // Generar análisis con Claude
+      // Generar análisis usando Claude
       const analysis = await generateBudgetSuggestions(projectData, analysisOptions);
-      
-      // Guardar análisis en base de datos (opcional)
+
+      // Guardar en base de datos si es solicitado
       if (req.body.saveAnalysis !== false) {
         try {
           await saveAnalysisToDatabase(req.params.projectId, analysis, req.user?.id);
           console.log('💾 Análisis guardado en base de datos');
         } catch (saveError) {
-          console.warn('⚠️ Error guardando análisis (continuando):', saveError.message);
+          console.warn('⚠️ Error guardando análisis:', saveError.message);
         }
       }
 
@@ -158,7 +102,7 @@ export default {
     } catch (error) {
       console.error('❌ Error en generateAnalysis:', error);
       
-      // Manejo específico de errores
+      // Manejo específico de errores de API
       if (error.message.includes('API key')) {
         return res.status(503).json({
           success: false,
@@ -191,41 +135,24 @@ export default {
   },
 
   /**
-   * Analiza un PDF de presupuesto usando chunking inteligente
+   * Analiza PDF con estrategia híbrida inteligente
    */
   async analyzePdfBudget(req, res, next) {
     try {
-      console.log('📄 Iniciando análisis PDF de presupuesto');
+      console.log('📄 Iniciando análisis PDF híbrido inteligente');
       
-      // ✅ VALIDACIONES BÁSICAS
-      if (!req.file) {
+      // Validar archivo subido
+      const fileErrors = validatePdfFile(req.file);
+      if (fileErrors.length > 0) {
         return res.status(400).json({
           success: false,
-          message: 'No se recibió archivo PDF',
-          error_code: 'NO_FILE_RECEIVED',
+          message: fileErrors[0],
+          error_code: 'INVALID_FILE',
           timestamp: new Date().toISOString()
         });
       }
 
-      if (!req.file.mimetype || req.file.mimetype !== 'application/pdf') {
-        return res.status(400).json({
-          success: false,
-          message: 'Solo se permiten archivos PDF',
-          error_code: 'INVALID_FILE_TYPE',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (req.file.size > 15 * 1024 * 1024) {
-        return res.status(413).json({
-          success: false,
-          message: 'Archivo demasiado grande. Máximo 15MB permitido',
-          error_code: 'FILE_TOO_LARGE',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // Validar datos de entrada adicionales
+      // Validar datos adicionales del request
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({
@@ -237,61 +164,66 @@ export default {
       }
 
       const analysisId = `pdf_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      // Configuración de análisis
-      const analysisConfig = {
-        depth: req.body.analysisDepth || 'standard',
-        includeProviders: req.body.includeProviders !== false,
-        projectType: req.body.projectType || 'unknown',
-        projectLocation: req.body.projectLocation || 'Chile',
-        maxCostEstimate: req.body.maxCostEstimate || null
-      };
+      const analysisConfig = processAnalysisConfig(req.body);
 
-      console.log('⚙️ Configuración de análisis:', analysisConfig);
       console.log('📁 Archivo recibido:', {
-        originalname: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype
+        name: req.file.originalname,
+        size: `${(req.file.size / 1024 / 1024).toFixed(2)} MB`,
+        type: req.file.mimetype
       });
 
-      // ✅ EXTRACCIÓN DE TEXTO CON MANEJO ROBUSTO
-      let pdfText;
+      // EXTRACCIÓN HÍBRIDA INTELIGENTE
+      let contentResult;
       try {
-        pdfText = await extractPdfText(req.file.buffer);
-      } catch (pdfError) {
-        console.error('❌ Error extrayendo texto PDF:', pdfError);
+        console.log('🚀 Iniciando extracción híbrida...');
+        contentResult = await PdfExtractionService.extractContent(
+          req.file.buffer, 
+          req.file.originalname
+        );
         
-        return res.status(400).json({
+        console.log(`✅ Extracción exitosa: ${contentResult.extraction_method} (${contentResult.confidence}%)`);
+        
+      } catch (pdfError) {
+        console.error('❌ Error en extracción PDF:', pdfError);
+        
+        const errorInfo = handlePdfAnalysisError(pdfError);
+        return res.status(errorInfo.status).json({
           success: false,
-          message: pdfError.message,
-          error_code: 'PDF_PROCESSING_ERROR',
+          message: errorInfo.message,
+          error_code: errorInfo.error_code,
           suggestions: [
             'Verifique que el archivo no esté corrupto',
-            'Asegúrese que el PDF contiene texto legible',
-            'PDFs escaneados como imagen no son soportados',
-            'Remueva protección con contraseña si la tiene'
+            'Para PDFs escaneados, asegúrese que las imágenes tengan buena calidad',
+            'Remueva protección con contraseña si la tiene',
+            'Para documentos complejos, considere dividir en archivos más pequeños'
           ],
           timestamp: new Date().toISOString()
         });
       }
 
-      // ✅ CHUNKING INTELIGENTE
-      console.log('🧩 Dividiendo PDF en chunks temáticos...');
+      const pdfContent = contentResult.content;
+      const extractionMetadata = createExtractionMetadata(contentResult);
+
+      console.log(`📝 Contenido extraído: ${pdfContent.length} caracteres`);
+
+      // CHUNKING INTELIGENTE
+      console.log('🧩 Dividiendo contenido en chunks temáticos...');
       let chunks;
       try {
-        chunks = await createIntelligentChunks(pdfText);
-        console.log(`🧩 PDF dividido en ${chunks.length} chunks temáticos`);
+        chunks = await createIntelligentChunks(pdfContent);
+        console.log(`🧩 ${chunks.length} chunks temáticos creados`);
       } catch (chunkError) {
         console.error('❌ Error en chunking:', chunkError);
-        return res.status(500).json({
-          success: false,
-          message: 'Error procesando contenido del PDF',
-          error_code: 'CHUNK_PROCESSING_ERROR',
-          timestamp: new Date().toISOString()
-        });
+        // Fallback: chunk único
+        chunks = [{
+          type: 'general',
+          content: pdfContent.substring(0, 8000),
+          title: 'Contenido General'
+        }];
+        console.log('📝 Usando chunk único como fallback');
       }
 
-      // ✅ ANÁLISIS CON IA
+      // ANÁLISIS DETALLADO CON IA
       console.log('🤖 Iniciando análisis con IA...');
       let analysisResult;
       try {
@@ -300,37 +232,24 @@ export default {
           analysisConfig, 
           analysisId
         );
+        
+        // Agregar metadata de extracción
+        analysisResult.extraction_metadata = extractionMetadata;
+        
       } catch (aiError) {
         console.error('❌ Error en análisis IA:', aiError);
         
-        if (aiError.message.includes('API key')) {
-          return res.status(503).json({
-            success: false,
-            message: 'Servicio de análisis IA temporalmente no disponible',
-            error_code: 'AI_SERVICE_UNAVAILABLE',
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        if (aiError.message.includes('rate limit')) {
-          return res.status(429).json({
-            success: false,
-            message: 'Límite de análisis alcanzado. Intente nuevamente en unos minutos',
-            error_code: 'RATE_LIMIT_EXCEEDED',
-            retry_after: 300,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        return res.status(500).json({
+        const errorInfo = handlePdfAnalysisError(aiError);
+        return res.status(errorInfo.status).json({
           success: false,
-          message: 'Error en análisis con IA',
-          error_code: 'AI_ANALYSIS_ERROR',
+          message: errorInfo.message,
+          error_code: errorInfo.error_code,
+          retry_after: errorInfo.retry_after,
           timestamp: new Date().toISOString()
         });
       }
 
-      // ✅ GUARDAR RESULTADO
+      // GUARDAR RESULTADO
       if (req.body.saveAnalysis !== false) {
         try {
           await savePdfAnalysisToDatabase(analysisId, analysisResult, req.user?.id);
@@ -345,7 +264,7 @@ export default {
         await incrementUserUsage(req.user.id, 'pdf_analysis');
       }
 
-      // ✅ RESPUESTA EXITOSA
+      // RESPUESTA EXITOSA
       res.json({
         success: true,
         message: 'Análisis PDF completado exitosamente',
@@ -356,14 +275,15 @@ export default {
             chunksProcessed: chunks.length,
             originalFileSize: req.file.size,
             originalFileName: req.file.originalname,
-            textLength: pdfText.length,
-            processingTime: new Date().toISOString()
+            contentLength: pdfContent.length,
+            processingTime: new Date().toISOString(),
+            extraction: extractionMetadata
           }
         },
         timestamp: new Date().toISOString()
       });
 
-      console.log('✅ Análisis PDF completado exitosamente');
+      console.log(`✅ Análisis PDF completado: ${extractionMetadata.extraction_method} -> ${chunks.length} chunks -> IA`);
 
     } catch (error) {
       console.error('❌ Error crítico en analyzePdfBudget:', error);
@@ -386,210 +306,160 @@ export default {
     try {
       const { analysisId } = req.params;
       
-      if (!analysisId || !analysisId.startsWith('pdf_')) {
+      if (!analysisId) {
         return res.status(400).json({
           success: false,
-          message: 'ID de análisis inválido',
+          message: 'ID de análisis requerido',
+          error_code: 'MISSING_ANALYSIS_ID',
           timestamp: new Date().toISOString()
         });
       }
+
+      const analysis = await getPdfAnalysisFromDatabase(analysisId);
       
-      const analysisResult = await getPdfAnalysisFromDatabase(analysisId, req.user?.id);
-      
-      if (!analysisResult) {
+      if (!analysis) {
         return res.status(404).json({
           success: false,
           message: 'Análisis no encontrado',
+          error_code: 'ANALYSIS_NOT_FOUND',
           timestamp: new Date().toISOString()
         });
       }
 
       res.json({
         success: true,
-        data: analysisResult,
+        message: 'Análisis recuperado exitosamente',
+        data: analysis,
         timestamp: new Date().toISOString()
       });
 
     } catch (error) {
-      console.error('❌ Error en getPdfAnalysisResult:', error);
+      console.error('❌ Error obteniendo análisis PDF:', error);
+      
       res.status(500).json({
         success: false,
-        message: 'Error obteniendo análisis PDF',
+        message: 'Error interno obteniendo análisis',
+        error_code: 'RETRIEVAL_ERROR',
         timestamp: new Date().toISOString()
       });
+
       next(error);
     }
   },
 
   /**
-   * Compara análisis de múltiples PDFs
+   * Compara múltiples análisis de PDF
    */
   async comparePdfAnalyses(req, res, next) {
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Datos de entrada inválidos',
+          errors: errors.array(),
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const { analysisIds, comparisonType = 'total_cost' } = req.body;
-      
-      if (!analysisIds || !Array.isArray(analysisIds) || analysisIds.length < 2) {
-        return res.status(400).json({
-          success: false,
-          message: 'Se necesitan al menos 2 análisis para comparar',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (analysisIds.length > 5) {
-        return res.status(400).json({
-          success: false,
-          message: 'Máximo 5 análisis pueden ser comparados',
-          timestamp: new Date().toISOString()
-        });
-      }
-      
-      // Obtener todos los análisis
-      const analyses = await Promise.all(
-        analysisIds.map(id => getPdfAnalysisFromDatabase(id, req.user?.id))
-      );
-
-      // Filtrar análisis válidos
-      const validAnalyses = analyses.filter(Boolean);
-      
-      if (validAnalyses.length < 2) {
-        return res.status(400).json({
-          success: false,
-          message: 'Se necesitan al menos 2 análisis válidos para comparar',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // Generar comparación
-      const comparison = await generatePdfComparison(validAnalyses, comparisonType);
-
-      // Incrementar contador de uso
-      if (req.user?.id) {
-        await incrementUserUsage(req.user.id, 'pdf_comparison');
-      }
+      const comparison = await generatePdfComparison(analysisIds, comparisonType);
 
       res.json({
         success: true,
+        message: 'Comparación completada exitosamente',
         data: comparison,
         timestamp: new Date().toISOString()
       });
 
     } catch (error) {
-      console.error('❌ Error en comparePdfAnalyses:', error);
+      console.error('❌ Error en comparación PDF:', error);
+      
       res.status(500).json({
         success: false,
-        message: 'Error comparando análisis PDF',
+        message: 'Error interno en comparación',
+        error_code: 'COMPARISON_ERROR',
         timestamp: new Date().toISOString()
       });
+
       next(error);
     }
   },
 
   /**
-   * Obtiene el historial de análisis de un proyecto
+   * Obtiene historial de análisis de un proyecto
    */
   async getAnalysisHistory(req, res, next) {
     try {
       const { projectId } = req.params;
       const { limit = 10, offset = 0 } = req.query;
 
-      console.log(`📋 Obteniendo historial de análisis para proyecto: ${projectId}`);
-
-      const limitNum = parseInt(limit);
-      const offsetNum = parseInt(offset);
-
-      if (isNaN(limitNum) || limitNum < 1 || limitNum > 50) {
-        return res.status(400).json({
-          success: false,
-          message: 'Limit debe ser un número entre 1 y 50',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (isNaN(offsetNum) || offsetNum < 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Offset debe ser un número mayor o igual a 0',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      const history = await getProjectAnalysisHistory(projectId, limitNum, offsetNum);
+      const history = await getProjectAnalysisHistory(projectId, {
+        limit: parseInt(limit),
+        offset: parseInt(offset)
+      });
 
       res.json({
         success: true,
-        message: 'Historial de análisis obtenido exitosamente',
-        data: {
-          project_id: projectId,
-          analyses: history.analyses,
-          pagination: {
-            total: history.total,
-            limit: limitNum,
-            offset: offsetNum,
-            has_more: history.total > (offsetNum + limitNum)
-          }
-        },
+        message: 'Historial recuperado exitosamente',
+        data: history,
         timestamp: new Date().toISOString()
       });
 
     } catch (error) {
       console.error('❌ Error obteniendo historial:', error);
+      
       res.status(500).json({
         success: false,
-        message: 'Error obteniendo historial de análisis',
+        message: 'Error interno obteniendo historial',
+        error_code: 'HISTORY_ERROR',
         timestamp: new Date().toISOString()
       });
+
       next(error);
     }
   },
 
   /**
-   * Compara múltiples análisis de un proyecto
+   * Compara múltiples análisis de un proyecto específico
    */
-  async compareAnalyses(req, res, next) {
+  async compareProjectAnalyses(req, res, next) {
     try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Datos de entrada inválidos',
+          errors: errors.array(),
+          timestamp: new Date().toISOString()
+        });
+      }
+
       const { projectId } = req.params;
-      const { analysisIds } = req.body;
+      const { analysisIds, comparisonType = 'total_cost' } = req.body;
 
-      if (!analysisIds || !Array.isArray(analysisIds) || analysisIds.length < 2) {
-        return res.status(400).json({
-          success: false,
-          message: 'Se requieren al menos 2 análisis para comparar',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      if (analysisIds.length > 10) {
-        return res.status(400).json({
-          success: false,
-          message: 'Máximo 10 análisis pueden ser comparados',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      console.log(`🔍 Comparando análisis para proyecto: ${projectId}`);
-
-      const comparison = await compareProjectAnalyses(projectId, analysisIds);
-
-      if (req.user?.id) {
-        await incrementUserUsage(req.user.id, 'analysis_comparison');
-      }
+      const comparison = await compareProjectAnalyses(projectId, analysisIds, comparisonType);
 
       res.json({
         success: true,
-        message: 'Comparación de análisis completada',
+        message: 'Comparación de proyecto completada exitosamente',
         data: comparison,
         timestamp: new Date().toISOString()
       });
 
     } catch (error) {
-      console.error('❌ Error en comparación:', error);
+      console.error('❌ Error en comparación de proyecto:', error);
+      
       res.status(500).json({
         success: false,
-        message: 'Error comparando análisis',
+        message: 'Error interno en comparación de proyecto',
+        error_code: 'PROJECT_COMPARISON_ERROR',
         timestamp: new Date().toISOString()
       });
+
       next(error);
     }
   }
 };
+
+export default budgetController;

@@ -812,3 +812,249 @@ Para el mercado chileno considera:
 - Costos de transporte según ubicación
 - Regulaciones locales aplicables
 `;
+
+// Agregar esta función a tu src/services/claudeService.mjs
+/**
+ * Analiza imágenes de documentos usando Claude Vision
+ * 🔥 Nueva función para analizar PDFs escaneados/con imágenes
+ */
+/**
+ * Analiza documentos usando Claude Vision (versión mejorada)
+ * Puede manejar PDFs directamente sin conversión a imágenes
+ */
+export async function analyzeDocumentImages(images, config = {}) {
+  try {
+    console.log(`🤖 Analizando documento con Claude Vision...`);
+    
+    if (!images || images.length === 0) {
+      throw new Error('No se proporcionaron documentos para analizar');
+    }
+    
+    // Verificar API key
+    if (!process.env.ANTHROPIC_API_KEY) {
+      throw new Error('API key de Anthropic no configurada');
+    }
+    
+    // Prompt especializado para presupuestos de construcción
+    const analysisPrompt = `
+Eres un experto analista de presupuestos de construcción chileno. Analiza este documento y extrae TODA la información relevante.
+
+INSTRUCCIONES ESPECÍFICAS:
+1. Extrae TODO el texto visible
+2. Identifica elementos del presupuesto:
+   - Partidas y códigos de obra
+   - Materiales con cantidades y precios unitarios
+   - Mano de obra con horas y tarifas
+   - Equipos y maquinaria
+   - Subcontratos y servicios
+   - Totales parciales y generales
+3. Mantén la estructura y formato original
+4. Para tablas, preserva columnas y filas
+5. Identifica proveedores y especificaciones técnicas
+6. Busca fechas, ubicaciones y datos del proyecto
+
+FORMATO DE RESPUESTA - Devuelve SOLO este JSON:
+{
+  "extracted_text": "Todo el texto extraído con formato original",
+  "budget_items": [
+    {
+      "code": "código si existe",
+      "description": "descripción completa",
+      "quantity": número,
+      "unit": "unidad (m2, ml, kg, etc)",
+      "unit_price": número,
+      "total_price": número,
+      "category": "material|labor|equipment|subcontract|other"
+    }
+  ],
+  "totals": {
+    "materials": número_o_null,
+    "labor": número_o_null, 
+    "equipment": número_o_null,
+    "subtotal": número_o_null,
+    "total": número_o_null
+  },
+  "metadata": {
+    "project_name": "nombre si se identifica",
+    "date": "fecha si se identifica",
+    "location": "ubicación si se identifica",
+    "document_type": "especificaciones_tecnicas|presupuesto|cotizacion|otro"
+  },
+  "confidence": número_entre_1_y_100,
+  "analysis": "Resumen ejecutivo del documento"
+}
+
+CONTEXTO CHILENO: Presta atención a:
+- Códigos BIM o especificaciones NCh (normas chilenas)
+- Precios en pesos chilenos (CLP, $)
+- Términos técnicos de construcción en español
+- Unidades métricas (m2, m3, kg, ton, etc.)
+
+Analiza minuciosamente y extrae TODO el contenido posible.
+`;
+
+    // Preparar mensaje para Claude
+    const messageContent = [
+      { type: 'text', text: analysisPrompt },
+      ...images
+    ];
+
+    // Llamar a Claude Vision API
+    const response = await anthropic.messages.create({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 4000,
+      temperature: 0.1, // Baja temperatura para máxima precisión
+      messages: [
+        {
+          role: 'user',
+          content: messageContent
+        }
+      ]
+    });
+
+    const analysisText = response.content[0].text;
+    console.log('✅ Claude Vision completó el análisis');
+
+    // Parsear respuesta JSON
+    let parsedResult;
+    try {
+      // Buscar JSON en la respuesta
+      const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsedResult = JSON.parse(jsonMatch[0]);
+        console.log(`📊 Datos extraídos: ${parsedResult.budget_items?.length || 0} items`);
+      } else {
+        throw new Error('No se encontró JSON en la respuesta');
+      }
+    } catch (parseError) {
+      console.warn('⚠️ Error parseando JSON, usando análisis como texto');
+      parsedResult = {
+        extracted_text: analysisText,
+        budget_items: [],
+        totals: {},
+        metadata: { document_type: 'unknown' },
+        confidence: 75,
+        analysis: 'Análisis de texto sin estructura JSON',
+        parsing_error: true,
+        raw_response: analysisText
+      };
+    }
+
+    // Validar y enriquecer resultado
+    return {
+      ...parsedResult,
+      processing_info: {
+        model_used: 'claude-3-5-sonnet-20241022',
+        processing_time: new Date().toISOString(),
+        config: config,
+        response_length: analysisText.length
+      }
+    };
+
+  } catch (error) {
+    console.error('❌ Error en Claude Vision:', error);
+    
+    // Errores específicos para mejor debugging
+    if (error.message.includes('API key')) {
+      throw new Error('API key de Claude no está configurada');
+    }
+    
+    if (error.message.includes('rate_limit')) {
+      throw new Error('Límite de API alcanzado, intente en unos minutos');
+    }
+    
+    if (error.message.includes('overloaded')) {
+      throw new Error('Servicio Claude temporalmente sobrecargado');
+    }
+    
+    throw new Error(`Error en análisis con Claude Vision: ${error.message}`);
+  }
+}
+
+/**
+ * Convierte PDF a imágenes para análisis con Claude Vision
+ * Usa pdf2pic para convertir páginas PDF a imágenes
+ */
+export async function convertPdfToImages(pdfBuffer, options = {}) {
+  try {
+    // Importación dinámica de pdf2pic
+    const { fromBuffer } = await import('pdf2pic');
+    
+    const convert = fromBuffer(pdfBuffer, {
+      density: options.density || 200,           // DPI
+      saveFilename: "page",
+      savePath: "./temp/",
+      format: "png",
+      width: options.width || 1200,
+      height: options.height || 1600,
+      quality: options.quality || 100
+    });
+
+    console.log('🖼️ Convirtiendo PDF a imágenes...');
+    
+    // Convertir todas las páginas
+    const results = await convert.bulk(-1, { responseType: "buffer" });
+    
+    if (!results || results.length === 0) {
+      throw new Error('No se pudieron generar imágenes del PDF');
+    }
+
+    // Preparar imágenes para Claude Vision
+    const images = results.map((result, index) => ({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/png',
+        data: result.buffer.toString('base64')
+      }
+    }));
+
+    console.log(`✅ PDF convertido a ${images.length} imágenes`);
+    return images;
+
+  } catch (error) {
+    console.error('❌ Error convirtiendo PDF a imágenes:', error);
+    throw new Error(`Error en conversión PDF a imágenes: ${error.message}`);
+  }
+}
+
+/**
+ * Análisis completo de PDF con imágenes usando Claude Vision
+ * Esta función maneja todo el flujo: PDF → Imágenes → Análisis con Claude
+ */
+export async function analyzePdfWithVision(pdfBuffer, config = {}) {
+  try {
+    console.log('🔍 Iniciando análisis PDF con Claude Vision...');
+    
+    // 1. Convertir PDF a imágenes
+    const images = await convertPdfToImages(pdfBuffer, {
+      density: 200,
+      quality: 100
+    });
+
+    // 2. Analizar imágenes con Claude Vision
+    const analysis = await analyzeDocumentImages(images, config);
+
+    console.log('✅ Análisis PDF con Vision completado');
+    
+    return {
+      ...analysis,
+      extraction_method: 'claude_vision',
+      images_analyzed: images.length,
+      vision_analysis: true
+    };
+
+  } catch (error) {
+    console.error('❌ Error en análisis PDF con Vision:', error);
+    
+    // Errores específicos para mejor UX
+    if (error.message.includes('pdf2pic')) {
+      throw new Error(
+        'Servicio de conversión PDF no disponible. ' +
+        'Para PDFs con imágenes, use un conversor OCR online primero.'
+      );
+    }
+    
+    throw new Error(`Error en análisis PDF con visión: ${error.message}`);
+  }
+}

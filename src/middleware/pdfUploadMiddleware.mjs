@@ -11,7 +11,7 @@ const pdfUpload = multer({
   
   // Límites del archivo
   limits: {
-    fileSize: 15 * 1024 * 1024, // 15MB máximo
+    fileSize: 30 * 1024 * 1024, // 15MB máximo
     files: 1 // Solo un archivo por request
   },
   
@@ -20,7 +20,6 @@ const pdfUpload = multer({
     console.log('📁 Validando archivo:', {
       originalname: file.originalname,
       mimetype: file.mimetype,
-      size: file.size
     });
 
     // Verificar que sea un PDF por mimetype

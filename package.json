@@ -22,7 +22,13 @@
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "mysql2": "^3.6.1",
-    "pdf-parse": "^1.1.1"
+    "pdf-image": "^2.0.0",
+    "pdf-parse": "^1.1.1",
+    "pdf-poppler": "^0.2.1",
+    "pdf2pic": "^2.1.1",
+    "sharp": "^0.34.3",
+    "tesseract.js": "^6.0.1",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

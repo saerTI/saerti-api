@@ -2,7 +2,8 @@
 import express from 'express';
 import { body } from 'express-validator';
 import { authenticate } from '../middleware/auth.mjs';
-import budgetController from '../controllers/budgetSuggestionsController.mjs';
+// ✅ CORRECCIÓN: Import correcto del controlador
+import { budgetController } from '../controllers/budgetSuggestionsController.mjs';
 import { 
   uploadPdfForAnalysis, 
   handlePdfUploadErrors, 
@@ -244,7 +245,7 @@ router.post(
     body('analysisIds').isArray({ min: 2, max: 10 }).withMessage('Se requieren entre 2 y 10 análisis para comparar'),
     body('analysisIds.*').isString().withMessage('IDs de análisis deben ser strings')
   ],
-  budgetController.compareAnalyses
+  budgetController.compareProjectAnalyses  // ✅ CORRECCIÓN: Nombre correcto de la función
 );
 
 /**
