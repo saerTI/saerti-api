@@ -403,7 +403,7 @@ const budgetController = {
         anthropic: {
           model: (costEstimate.estimated_cost_usd || costEstimate) > 1.0 
             ? 'claude-3-haiku-20240307'  // Modelo más barato para archivos grandes
-            : 'claude-3-5-sonnet-20241022' // Modelo normal para archivos pequeños
+            : 'claude-3-haiku-20240307' // Modelo normal para archivos pequeños
         }
       };
 

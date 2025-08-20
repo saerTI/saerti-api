@@ -197,7 +197,7 @@ export const generateDetailedPdfAnalysis = async (extractedText, config = {}) =>
         const prompt = generateOptimizedPrompt(chunk, index + 1, chunksToProcess.length);
         
         const response = await anthropic.messages.create({
-          model: config.anthropic?.model || 'claude-3-5-sonnet-20241022',
+          model: config.anthropic?.model || 'claude-3-haiku-20240307',
           max_tokens: 2000, // 👈 REDUCIDO para evitar tokens excesivos
           temperature: 0.1, // 👈 MÁS DETERMINISTA
           system: OPTIMIZED_PDF_SYSTEM_PROMPT,

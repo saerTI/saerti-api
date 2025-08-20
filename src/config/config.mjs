@@ -86,7 +86,7 @@ console.log('🤖 Configuración Anthropic:', {
 export function validateAnthropicModel(model) {
   const validModels = [
     'claude-sonnet-4-20250514',
-    'claude-3-5-sonnet-20241022', 
+    'claude-3-haiku-20240307', 
     'claude-3-opus-20240229',
     'claude-3-haiku-20240307'
   ];
