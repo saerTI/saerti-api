@@ -95,6 +95,22 @@ async function getSupplierIdByTaxId(taxId) {
 }
 
 /**
+ * Helper function to get default cost center ID
+ */
+async function getDefaultCostCenterId() {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id FROM cost_centers ORDER BY id ASC LIMIT 1'
+    );
+    
+    return rows.length > 0 ? rows[0].id : null;
+  } catch (error) {
+    console.error('Error getting default cost center:', error);
+    return null;
+  }
+}
+
+/**
  * Gets all purchase orders with filters, search and pagination
  */
 async function getAll(filters = {}, pagination = {}) {
@@ -104,101 +120,115 @@ async function getAll(filters = {}, pagination = {}) {
     const offset = parseInt(pagination.offset) || 0;
     const page = Math.floor(offset / limit) + 1;
     
-    // Base query para datos
-    let baseQuery = `
-      FROM purchase_orders po
+    // Build JOINs used by both queries
+    const joins = `
+      LEFT JOIN (
+        SELECT purchase_order_id, SUM(total) as amount
+        FROM purchase_order_items
+        GROUP BY purchase_order_id
+      ) poi ON poi.purchase_order_id = po.id
+      LEFT JOIN (
+        SELECT 
+          poi_items.purchase_order_id,
+          GROUP_CONCAT(DISTINCT ac_items.name ORDER BY ac_items.name SEPARATOR ', ') as item_categories
+        FROM purchase_order_items poi_items
+        LEFT JOIN account_categories ac_items ON poi_items.account_category_id = ac_items.id
+        WHERE ac_items.name IS NOT NULL
+        GROUP BY poi_items.purchase_order_id
+      ) poi_categories ON poi_categories.purchase_order_id = po.id
       LEFT JOIN cost_centers cc ON po.cost_center_id = cc.id 
       LEFT JOIN account_categories ac ON po.account_category_id = ac.id
-      LEFT JOIN suppliers s ON po.supplier_id = s.id
-      WHERE 1=1
     `;
-    
-    let queryParams = [];
-    
-    // CONSTRUIR FILTROS UNA SOLA VEZ
-    // Search filter by description/notes
+
+    // Build WHERE clause and params once
+    const whereClauses = ['1=1'];
+    const queryParams = [];
+
+    // Filtro de búsqueda (description / po_number)
     if (filters.search && filters.search.trim()) {
-      baseQuery += ' AND (po.description LIKE ? OR po.notes LIKE ? OR po.po_number LIKE ?)';
+      whereClauses.push('(po.description LIKE ? OR po.po_number LIKE ?)');
       const searchTerm = `%${filters.search.trim()}%`;
-      queryParams.push(searchTerm, searchTerm, searchTerm);
+      queryParams.push(searchTerm, searchTerm);
     }
-    
+
     // Status filter - MAP TO SPANISH
     if (filters.status) {
       const mappedStatus = mapStatusToSpanish(filters.status);
-      baseQuery += ' AND po.status = ?';
+      whereClauses.push('po.status = ?');
       queryParams.push(mappedStatus);
     }
-    
+
     // Cost center filter
     if (filters.costCenterId) {
-      baseQuery += ' AND po.cost_center_id = ?';
+      whereClauses.push('po.cost_center_id = ?');
       queryParams.push(filters.costCenterId);
     }
-    
+
     // PO number filter
     if (filters.poNumber) {
-      baseQuery += ' AND po.po_number LIKE ?';
+      whereClauses.push('po.po_number LIKE ?');
       queryParams.push(`%${filters.poNumber}%`);
     }
-    
+
     // Supplier filter
     if (filters.supplier) {
-      baseQuery += ' AND s.legal_name LIKE ?';
+      whereClauses.push('s.legal_name LIKE ?');
       queryParams.push(`%${filters.supplier}%`);
     }
-    
+
     // Date filters
     if (filters.dateFrom) {
-      baseQuery += ' AND po.po_date >= ?';
+      whereClauses.push('po.po_date >= ?');
       queryParams.push(filters.dateFrom);
     }
-    
+
     if (filters.dateTo) {
-      baseQuery += ' AND po.po_date <= ?';
+      whereClauses.push('po.po_date <= ?');
       queryParams.push(filters.dateTo);
     }
-    
+
     // Category filter
     if (filters.categoryId) {
-      baseQuery += ' AND po.account_category_id = ?';
+      whereClauses.push('po.account_category_id = ?');
       queryParams.push(filters.categoryId);
     }
-    
-    // Amount range filters
+
+    // Filtros por monto usando suma de ítems
     if (filters.amountFrom) {
-      baseQuery += ' AND po.total >= ?';
+      whereClauses.push('COALESCE(poi.amount,0) >= ?');
       queryParams.push(filters.amountFrom);
     }
-    
     if (filters.amountTo) {
-      baseQuery += ' AND po.total <= ?';
+      whereClauses.push('COALESCE(poi.amount,0) <= ?');
       queryParams.push(filters.amountTo);
     }
-    
-    // QUERY DE DATOS con JOIN completo
+
+    // COUNT query
+    const countQuery = `
+      SELECT COUNT(DISTINCT po.id) as total
+      FROM purchase_orders po
+      ${joins}
+      WHERE ${whereClauses.join(' AND ')}
+    `;
+
+    // DATA query
     const dataQuery = `
       SELECT 
         po.*, 
         cc.code as center_code, 
         cc.name as center_name,
         cc.type as center_type,
-        ac.name as category_name,
         ac.code as category_code,
-        COALESCE(po.supplier_name, s.legal_name) as supplier_name,
-        s.tax_id as supplier_tax_id
-      ${baseQuery}
+        po.supplier_name, -- ✅ Usar supplier_name directamente
+        COALESCE(poi.amount, 0) as total_amount,
+        COALESCE(poi_categories.item_categories, ac.name) as category_name -- ✅ Usar categorías de ítems concatenadas, fallback a categoría principal
+      FROM purchase_orders po
+      ${joins}
+      WHERE ${whereClauses.join(' AND ')}
       ORDER BY po.po_date DESC, po.created_at DESC
       LIMIT ? OFFSET ?
     `;
-    
-    // QUERY DE CONTEO simplificado
-    const countQuery = `
-      SELECT COUNT(DISTINCT po.id) as total
-      ${baseQuery}
-    `;
 
-    
     // EJECUTAR CONTEO PRIMERO (sin limit/offset)
     const [countResult] = await pool.query(countQuery, queryParams);
     
@@ -235,12 +265,11 @@ async function getAll(filters = {}, pagination = {}) {
       };
     }
     
-    // EJECUTAR QUERY DE DATOS con paginación
-    const dataParams = [...queryParams, limit, offset];
-    console.log('📊 Data query:', dataQuery);
-    console.log('📊 Data params:', dataParams);
-    
-    const [rows] = await pool.query(dataQuery, dataParams);
+  // EJECUTAR QUERY DE DATOS con paginación
+  const dataParams = [...queryParams, limit, offset];
+  console.log('📊 Data query:', dataQuery);
+  console.log('📊 Data params:', dataParams);
+  const [rows] = await pool.query(dataQuery, dataParams);
     console.log('📊 Data rows found:', rows.length);
     
     // CALCULAR PAGINACIÓN
@@ -278,15 +307,27 @@ async function getById(id) {
         cc.code as center_code, 
         cc.name as center_name,
         cc.type as center_type,
-        ac.name as category_name,
         ac.code as category_code,
-        s.legal_name as supplier_name,
-        s.tax_id as supplier_tax_id,
-        s.commercial_name as supplier_commercial_name
+        po.supplier_name, -- ✅ Usar supplier_name directamente de la tabla purchase_orders
+        COALESCE(poi.amount,0) as total_amount,
+        COALESCE(poi_categories.item_categories, ac.name) as category_name -- ✅ Usar categorías de ítems concatenadas, fallback a categoría principal
       FROM purchase_orders po
+      LEFT JOIN (
+        SELECT purchase_order_id, SUM(total) as amount 
+        FROM purchase_order_items 
+        GROUP BY purchase_order_id
+      ) poi ON poi.purchase_order_id = po.id
+      LEFT JOIN (
+        SELECT 
+          poi_items.purchase_order_id,
+          GROUP_CONCAT(DISTINCT ac_items.name ORDER BY ac_items.name SEPARATOR ', ') as item_categories
+        FROM purchase_order_items poi_items
+        LEFT JOIN account_categories ac_items ON poi_items.account_category_id = ac_items.id
+        WHERE ac_items.name IS NOT NULL
+        GROUP BY poi_items.purchase_order_id
+      ) poi_categories ON poi_categories.purchase_order_id = po.id
       LEFT JOIN cost_centers cc ON po.cost_center_id = cc.id 
       LEFT JOIN account_categories ac ON po.account_category_id = ac.id
-      LEFT JOIN suppliers s ON po.supplier_id = s.id
       WHERE po.id = ?
     `, [id]);
     return rows[0] || null;
@@ -352,18 +393,12 @@ async function create(poData) {
     const cleanPoData = {
       po_number: poData.po_number.trim(),
       po_date: poData.po_date,
-      description: poData.description?.trim() || `Orden ${poData.po_number}`,
-      subtotal: parseFloat(poData.subtotal) || parseFloat(poData.total) || 0,
-      total: parseFloat(poData.total) || parseFloat(poData.subtotal) || 0,
-      currency: poData.currency?.trim() || 'CLP',
+      description: poData.notes?.trim() || poData.description?.trim() || `Orden ${poData.po_number}`, // ✅ Usar notes como description
+      // Montos ahora se calculan desde purchase_order_items
       status: mapStatusToSpanish(poData.status?.trim() || 'draft'),
-      notes: poData.notes?.trim() || ''
+      // notes eliminado del esquema
     };
-    
-    // VALIDAR MONTOS
-    if (cleanPoData.total <= 0) {
-      throw new Error('Total amount must be greater than zero');
-    }
+    // Ya no se valida total aquí porque los ítems definen el monto
     
     // MAPEAR CÓDIGOS A IDs CON MANEJO DE CAMPOS REQUERIDOS NULL
     let costCenterId = poData.cost_center_id;
@@ -390,43 +425,18 @@ async function create(poData) {
       }
     }
         
-    // SI NO SE ENCUENTRA COST CENTER, USAR UNO POR DEFECTO O CREAR UNO GENÉRICO
+    // Use default cost center if none found
     if (!costCenterId) {
-      console.warn('⚠️ No cost center found, trying default...');
+      console.warn('⚠️ No cost center found, using default...');
       try {
-        // Intentar con códigos por defecto comunes
-        const defaultCodes = ['001-0', 'GEN-001', 'DEFAULT', 'GENERAL'];
-        for (const code of defaultCodes) {
-          costCenterId = await getCostCenterIdByCode(code);
-          if (costCenterId) {
-            console.log(`✅ Using default cost center: ${code} (ID: ${costCenterId})`);
-            break;
-          }
-        }
-        
-        // Si aún no hay cost center, obtener el primero disponible
-        if (!costCenterId) {
-          const [defaultCenterRows] = await pool.query(
-            'SELECT id FROM cost_centers WHERE status = ? ORDER BY id ASC LIMIT 1',
-            ['activo']
-          );
-          
-          if (defaultCenterRows.length > 0) {
-            costCenterId = defaultCenterRows[0].id;
-            console.log(`✅ Using first available cost center (ID: ${costCenterId})`);
-          } else {
-            // Como último recurso, crear un cost center por defecto
-            console.warn('⚠️ No cost centers found, creating default...');
-            const [insertResult] = await pool.query(
-              'INSERT INTO cost_centers (code, name, type, status) VALUES (?, ?, ?, ?)',
-              ['DEFAULT-001', 'Centro de Costo General', 'administrativo', 'activo']
-            );
-            costCenterId = insertResult.insertId;
-            console.log(`✅ Created default cost center (ID: ${costCenterId})`);
-          }
+        costCenterId = await getDefaultCostCenterId();
+        if (costCenterId) {
+          console.log(`✅ Using default cost center (ID: ${costCenterId})`);
+        } else {
+          throw new Error('No cost centers available in database');
         }
       } catch (error) {
-        console.error('❌ Error getting/creating default cost center:', error);
+        console.error('❌ Error getting default cost center:', error);
         throw new Error('Cannot proceed without a valid cost center');
       }
     }
@@ -449,16 +459,8 @@ async function create(poData) {
       }
     }
     
-    // Mapeo de proveedor (por ahora solo guardamos el nombre)
-    let supplierId = poData.supplier_id;
-    if (!supplierId && poData.supplier_tax_id) {
-      try {
-        supplierId = await getSupplierIdByTaxId(poData.supplier_tax_id);
-      } catch (error) {
-        console.error('❌ Error mapping supplier:', error);
-        supplierId = null;
-      }
-    }
+    // Mapeo de proveedor (solo usar supplier_name)
+    let supplierId = null; // ✅ Ignorar supplier_id, solo usar supplier_name
     
     // ASEGURAR QUE cost_center_id NO ES NULL
     if (!costCenterId) {
@@ -472,13 +474,9 @@ async function create(poData) {
       description: cleanPoData.description,
       cost_center_id: costCenterId,
       account_category_id: accountCategoryId,
-      supplier_id: supplierId,
       supplier_name: poData.supplier_name || poData.providerName || null,
-      subtotal: cleanPoData.subtotal,
-      total: cleanPoData.total,
-      currency: cleanPoData.currency,
       status: cleanPoData.status,
-      notes: cleanPoData.notes
+  // Campos derivados: total se obtiene de items
     };
     
     console.log('📋 Final data for upsert:', {
@@ -501,24 +499,18 @@ async function create(poData) {
       const existingId = existingOrder[0].id;
       console.log(`🔄 Updating existing purchase order with ID: ${existingId}`);
       
-      const [updateResult] = await pool.query(
+      await pool.query(
         `UPDATE purchase_orders SET 
           po_date = ?, description = ?, cost_center_id = ?, account_category_id = ?,
-          supplier_id = ?, supplier_name = ?, subtotal = ?, total = ?, currency = ?, status = ?, notes = ?,
-          updated_at = CURRENT_TIMESTAMP
+          supplier_name = ?, status = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
         [
           finalData.po_date,
           finalData.description,
           finalData.cost_center_id,
           finalData.account_category_id,
-          finalData.supplier_id,
           finalData.supplier_name,
-          finalData.subtotal,
-          finalData.total,
-          finalData.currency,
           finalData.status,
-          finalData.notes,
           existingId
         ]
       );
@@ -528,11 +520,11 @@ async function create(poData) {
       return { 
         id: existingId,
         po_number: finalData.po_number,
-        total: finalData.total,
+  // total_amount se obtiene por items
         status: finalData.status,
         cost_center_id: finalData.cost_center_id,
         account_category_id: finalData.account_category_id,
-        supplier_id: finalData.supplier_id,
+        supplier_name: finalData.supplier_name,
         isUpdate: true // ✅ INDICADOR DE QUE FUE ACTUALIZACIÓN
       };
     } else {
@@ -542,21 +534,16 @@ async function create(poData) {
       const [result] = await pool.query(
         `INSERT INTO purchase_orders (
           po_number, po_date, description, cost_center_id, account_category_id,
-          supplier_id, supplier_name, subtotal, total, currency, status, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          supplier_name, status
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           finalData.po_number,
           finalData.po_date,
           finalData.description,
           finalData.cost_center_id,
           finalData.account_category_id,
-          finalData.supplier_id,
           finalData.supplier_name,
-          finalData.subtotal,
-          finalData.total,
-          finalData.currency,
-          finalData.status,
-          finalData.notes
+          finalData.status
         ]
       );
       
@@ -566,11 +553,11 @@ async function create(poData) {
       return { 
         id: insertedId,
         po_number: finalData.po_number,
-        total: finalData.total,
+  // total_amount se obtiene por items
         status: finalData.status,
         cost_center_id: finalData.cost_center_id,
         account_category_id: finalData.account_category_id,
-        supplier_id: finalData.supplier_id,
+        supplier_name: finalData.supplier_name,
         isUpdate: false // ✅ INDICADOR DE QUE FUE CREACIÓN
       };
     }
@@ -610,45 +597,104 @@ async function update(id, poData) {
       costCenterId = await getCostCenterIdByCode(poData.cost_center_code);
     }
     
+    // Use default cost center if none provided
+    if (!costCenterId) {
+      costCenterId = await getDefaultCostCenterId();
+      console.log('🔧 Using default cost center ID:', costCenterId);
+    }
+
     // Map category name to ID if provided
-    let accountCategoryId = poData.account_category_id;
-    
-    if (!accountCategoryId && poData.category_name) {
+    let accountCategoryId = poData.account_category_id;    if (!accountCategoryId && poData.category_name) {
       accountCategoryId = await getAccountCategoryIdByName(poData.category_name);
     }
     
     // Map supplier name/tax_id to ID if provided
-    let supplierId = poData.supplier_id;
-    
-    if (!supplierId && poData.supplier_tax_id) {
-      supplierId = await getSupplierIdByTaxId(poData.supplier_tax_id);
-    }
+    let supplierId = null; // ✅ Ignorar supplier_id, solo usar supplier_name
     
     // ✅ MAP STATUS TO SPANISH
     const mappedStatus = poData.status ? mapStatusToSpanish(poData.status) : null;
     
-    const [result] = await pool.query(
-      `UPDATE purchase_orders SET 
-        po_number = ?, po_date = ?, description = ?, cost_center_id = ?, 
-        account_category_id = ?, supplier_id = ?, supplier_name = ?, subtotal = ?, total = ?, 
-        currency = ?, status = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?`,
-      [
-        poData.po_number,
-        poData.po_date,
-        poData.description,
-        costCenterId,
-        accountCategoryId,
-        supplierId,
-        poData.supplier_name || poData.providerName || null,
-        poData.subtotal,
-        poData.total || poData.subtotal,
-        poData.currency,
-        mappedStatus,  // ✅ SPANISH VALUE
-        poData.notes,
-        id
-      ]
-    );
+    console.log('🔍 Final values before UPDATE:', {
+      costCenterId,
+      accountCategoryId,
+      supplier_name: poData.supplier_name || poData.providerName || null,
+      mappedStatus,
+      fieldsToUpdate: Object.keys(poData),
+      hasOwnPropertyChecks: {
+        po_number: poData.hasOwnProperty('po_number'),
+        po_date: poData.hasOwnProperty('po_date'),
+        notes: poData.hasOwnProperty('notes'),
+        description: poData.hasOwnProperty('description'),
+        cost_center_id: poData.hasOwnProperty('cost_center_id'),
+        cost_center_code: poData.hasOwnProperty('cost_center_code'),
+        supplier_name: poData.hasOwnProperty('supplier_name'),
+        status: poData.hasOwnProperty('status'),
+        state: poData.hasOwnProperty('state')
+      }
+    });
+    
+    // Construir consulta dinámicamente solo con campos presentes
+    const updateFields = [];
+    const updateValues = [];
+    
+    if (poData.hasOwnProperty('po_number') && poData.po_number !== undefined) {
+      updateFields.push('po_number = ?');
+      updateValues.push(poData.po_number);
+    }
+    
+    if (poData.hasOwnProperty('po_date') && poData.po_date !== undefined) {
+      updateFields.push('po_date = ?');
+      updateValues.push(poData.po_date);
+    }
+    
+    if (poData.hasOwnProperty('notes') || poData.hasOwnProperty('description')) {
+      if (poData.notes !== undefined || poData.description !== undefined) {
+        updateFields.push('description = ?');
+        updateValues.push(poData.notes || poData.description);
+      }
+    }
+    
+    // Solo actualizar cost_center_id si se proporciona explícitamente
+    if (poData.hasOwnProperty('cost_center_id') || poData.hasOwnProperty('cost_center_code')) {
+      updateFields.push('cost_center_id = ?');
+      updateValues.push(costCenterId);
+    }
+    
+    // Solo actualizar account_category_id si se proporciona explícitamente
+    if (poData.hasOwnProperty('account_category_id') || poData.hasOwnProperty('category_name')) {
+      updateFields.push('account_category_id = ?');
+      updateValues.push(accountCategoryId);
+    }
+    
+    if (poData.hasOwnProperty('supplier_name') || poData.hasOwnProperty('providerName')) {
+      if (poData.supplier_name !== undefined || poData.providerName !== undefined) {
+        updateFields.push('supplier_name = ?');
+        updateValues.push(poData.supplier_name || poData.providerName);
+      }
+    }
+    
+    if (poData.hasOwnProperty('status') || poData.hasOwnProperty('state')) {
+      if (mappedStatus !== undefined && mappedStatus !== null) {
+        updateFields.push('status = ?');
+        updateValues.push(mappedStatus);
+      }
+    }
+    
+    // Siempre actualizar updated_at
+    updateFields.push('updated_at = CURRENT_TIMESTAMP');
+    
+    // Si no hay campos para actualizar, retornar error
+    if (updateFields.length === 1) { // Solo updated_at
+      throw new Error('No fields to update');
+    }
+    
+    const query = `UPDATE purchase_orders SET ${updateFields.join(', ')} WHERE id = ?`;
+    updateValues.push(id);
+    
+    console.log('🔧 Dynamic UPDATE query:', query);
+    console.log('🔧 Values:', updateValues);
+    
+    const [result] = await pool.query(query, updateValues);
     
     if (result.affectedRows === 0) {
       return null;
@@ -659,8 +705,7 @@ async function update(id, poData) {
       ...poData, 
       cost_center_id: costCenterId,
       account_category_id: accountCategoryId,
-      supplier_id: supplierId,
-        supplier_name: poData.supplier_name || poData.providerName || null,
+      supplier_name: poData.supplier_name || poData.providerName || null,
       status: mappedStatus
     };
   } catch (error) {
@@ -697,14 +742,19 @@ async function getStats(filters = {}) {
     let query = `
       SELECT 
         COUNT(*) as total,
-        COALESCE(SUM(CASE WHEN status = 'borrador' THEN 1 ELSE 0 END), 0) as borrador,
-        COALESCE(SUM(CASE WHEN status = 'activo' THEN 1 ELSE 0 END), 0) as activo,
-        COALESCE(SUM(CASE WHEN status = 'en_progreso' THEN 1 ELSE 0 END), 0) as en_progreso,
-        COALESCE(SUM(CASE WHEN status = 'completado' THEN 1 ELSE 0 END), 0) as completado,
-        COALESCE(SUM(CASE WHEN status = 'cancelado' THEN 1 ELSE 0 END), 0) as cancelado,
-        COALESCE(SUM(total), 0) as monto_total,
-        COALESCE(AVG(total), 0) as monto_promedio
+        COALESCE(SUM(CASE WHEN po.status = 'borrador' THEN 1 ELSE 0 END), 0) as borrador,
+        COALESCE(SUM(CASE WHEN po.status = 'activo' THEN 1 ELSE 0 END), 0) as activo,
+        COALESCE(SUM(CASE WHEN po.status = 'en_progreso' THEN 1 ELSE 0 END), 0) as en_progreso,
+        COALESCE(SUM(CASE WHEN po.status = 'completado' THEN 1 ELSE 0 END), 0) as completado,
+        COALESCE(SUM(CASE WHEN po.status = 'cancelado' THEN 1 ELSE 0 END), 0) as cancelado,
+        COALESCE(SUM(poi.amount), 0) as monto_total,
+        COALESCE(AVG(poi.amount), 0) as monto_promedio
       FROM purchase_orders po
+      LEFT JOIN (
+        SELECT purchase_order_id, SUM(total) as amount
+        FROM purchase_order_items
+        GROUP BY purchase_order_id
+      ) poi ON poi.purchase_order_id = po.id
       WHERE 1=1
     `;
     
@@ -712,9 +762,9 @@ async function getStats(filters = {}) {
     
     // Aplicar filtros básicos
     if (filters.search && filters.search.trim()) {
-      query += ' AND (po.description LIKE ? OR po.notes LIKE ? OR po.po_number LIKE ?)';
+      query += ' AND (po.description LIKE ? OR po.po_number LIKE ?)';
       const searchTerm = `%${filters.search.trim()}%`;
-      queryParams.push(searchTerm, searchTerm, searchTerm);
+      queryParams.push(searchTerm, searchTerm);
     }
     
     if (filters.status) {
@@ -779,12 +829,27 @@ async function getByCostCenter(costCenterId, options = {}) {
         po.*, 
         cc.code as center_code, 
         cc.name as center_name,
-        ac.name as category_name,
-        s.legal_name as supplier_name
+        ac.code as category_code,
+        po.supplier_name, -- ✅ Usar supplier_name directamente
+        COALESCE(poi.amount,0) as total_amount,
+        COALESCE(poi_categories.item_categories, ac.name) as category_name -- ✅ Usar categorías de ítems concatenadas, fallback a categoría principal
       FROM purchase_orders po
+      LEFT JOIN (
+        SELECT purchase_order_id, SUM(total) as amount
+        FROM purchase_order_items
+        GROUP BY purchase_order_id
+      ) poi ON poi.purchase_order_id = po.id
+      LEFT JOIN (
+        SELECT 
+          poi_items.purchase_order_id,
+          GROUP_CONCAT(DISTINCT ac_items.name ORDER BY ac_items.name SEPARATOR ', ') as item_categories
+        FROM purchase_order_items poi_items
+        LEFT JOIN account_categories ac_items ON poi_items.account_category_id = ac_items.id
+        WHERE ac_items.name IS NOT NULL
+        GROUP BY poi_items.purchase_order_id
+      ) poi_categories ON poi_categories.purchase_order_id = po.id
       LEFT JOIN cost_centers cc ON po.cost_center_id = cc.id 
       LEFT JOIN account_categories ac ON po.account_category_id = ac.id
-      LEFT JOIN suppliers s ON po.supplier_id = s.id
       WHERE po.cost_center_id = ?
     `;
     
@@ -818,5 +883,6 @@ export {
   getCostCenterIdByCode,
   getAccountCategoryIdByName,
   getSupplierIdByTaxId,
+  getDefaultCostCenterId,
   mapStatusToSpanish
 };

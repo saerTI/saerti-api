@@ -163,11 +163,11 @@ async function getPurchaseOrders(req, res, next) {
       cost_center_id: row.cost_center_id,
       account_category_id: row.account_category_id,
       provider_name: row.supplier_name || 'Sin proveedor',
-      amount: parseFloat(row.total) || 0,
+      amount: parseFloat(row.total_amount) || 0, // ✅ Usar total_amount en lugar de total
+      total_amount: parseFloat(row.total_amount) || 0, // ✅ También incluir total_amount para compatibilidad
       date: row.po_date,
-      payment_type: 'credit', // Default, ya que no tienes este campo en la DB
       state: row.status, // Mantener en español para la transformación
-      notes: row.notes,
+      notes: row.description, // ✅ notes viene de description
       created_at: row.created_at,
       updated_at: row.updated_at,
       center_code: row.center_code,
@@ -284,11 +284,11 @@ async function getPurchaseOrderById(req, res, next) {
       cost_center_id: purchaseOrder.cost_center_id,
       account_category_id: purchaseOrder.account_category_id,
       provider_name: purchaseOrder.supplier_name || 'Sin proveedor',
-      amount: parseFloat(purchaseOrder.total) || 0,
+      amount: parseFloat(purchaseOrder.total_amount) || 0, // ✅ Usar total_amount en lugar de total
+      total_amount: parseFloat(purchaseOrder.total_amount) || 0, // ✅ También incluir total_amount para compatibilidad
       date: purchaseOrder.po_date,
-      payment_type: 'credit',
       state: purchaseOrder.status,
-      notes: purchaseOrder.notes,
+      notes: purchaseOrder.description, // ✅ notes viene de description
       created_at: purchaseOrder.created_at,
       updated_at: purchaseOrder.updated_at,
       center_code: purchaseOrder.center_code,
@@ -339,15 +339,6 @@ async function createPurchaseOrder(req, res, next) {
       });
     }
     
-    const amount = parseFloat(req.body.total) || parseFloat(req.body.amount) || parseFloat(req.body.subtotal) || 0;
-    if (amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Amount must be greater than zero',
-        field: 'amount'
-      });
-    }
-    
     const poData = {
       po_number: poNumber.trim(),
       po_date: poDate || new Date().toISOString().split('T')[0],
@@ -355,11 +346,8 @@ async function createPurchaseOrder(req, res, next) {
       cost_center_code: req.body.costCenterCode || req.body.centerCode || req.body.centroCosto || null,
       category_name: req.body.categoryName || req.body.category || req.body.categoriaNombre || null,
       supplier_name: providerName.trim(),
-      subtotal: amount,
-      total: amount,
-      currency: req.body.currency || 'CLP',
       status: mapStatusToSpanish(req.body.status || req.body.state || 'draft'),
-      notes: req.body.notes || ''
+      notes: req.body.notes || description?.trim() || `Orden ${poNumber}` // ✅ notes se guardará en description
     };
     
     console.log('📤 Processed purchase order data:', poData);
@@ -379,8 +367,7 @@ async function createPurchaseOrder(req, res, next) {
       isUpdate: result.isUpdate, // ✅ INDICAR SI FUE ACTUALIZACIÓN
       data: {
         id: result.id,
-        po_number: result.po_number || poData.po_number,
-        total: result.total || poData.total
+        po_number: result.po_number || poData.po_number
       }
     });
     
@@ -449,7 +436,6 @@ async function createPurchaseOrdersBatch(req, res, next) {
         const description = item.description || item.notes || item.name || `Orden ${poNumber}`;
         
         const providerName = item.providerName || item.supplierName || item.supplier || 'Proveedor no especificado';
-        const amount = parseFloat(item.total) || parseFloat(item.amount) || parseFloat(item.subtotal) || 0;
         const costCenterCode = item.costCenterCode || item.centerCode || item.centroCosto || null;
         const categoryName = item.categoryName || item.category || item.categoriaNombre || null;
         
@@ -462,10 +448,6 @@ async function createPurchaseOrdersBatch(req, res, next) {
           throw new Error('Nombre del proveedor es requerido');
         }
         
-        if (amount <= 0) {
-          throw new Error('Monto debe ser mayor a cero');
-        }
-        
         const poData = {
           po_number: poNumber.trim(),
           po_date: poDate,
@@ -473,11 +455,8 @@ async function createPurchaseOrdersBatch(req, res, next) {
           cost_center_code: costCenterCode?.trim() || null,
           category_name: categoryName?.trim() || null,
           supplier_name: providerName.trim(),
-          subtotal: amount,
-          total: amount,
-          currency: item.currency || 'CLP',
           status: mapStatusToSpanish(item.status || item.state || 'draft'),
-          notes: item.notes || `Importado en lote - ${new Date().toISOString()}`
+          notes: item.notes || description.trim() || `Importado en lote - ${new Date().toISOString()}` // ✅ notes se guardará en description
         };
         
         console.log(`📋 Creating/Updating order ${index + 1}/${ordersData.length}: ${poData.po_number}`);
@@ -576,22 +555,74 @@ async function updatePurchaseOrder(req, res, next) {
   try {
     const { id } = req.params;
     
-    const poData = {
-      po_number: req.body.poNumber || req.body.po_number,
-      po_date: req.body.poDate || req.body.po_date,
-      description: req.body.description,
-      cost_center_id: req.body.costCenterId || null,
-      cost_center_code: req.body.costCenterCode || req.body.centerCode || null,
-      account_category_id: req.body.accountCategoryId || req.body.categoryId || null,
-      category_name: req.body.categoryName || req.body.category || null,
-      supplier_id: req.body.supplierId || null,
-      supplier_tax_id: req.body.supplierTaxId || req.body.supplierRut || null,
-      subtotal: parseFloat(req.body.subtotal) || 0,
-      total: parseFloat(req.body.total) || parseFloat(req.body.subtotal) || 0,
-      currency: req.body.currency || 'CLP',
-      status: mapStatusToSpanish(req.body.status || req.body.state || 'draft'),
-      notes: req.body.notes
+    console.log('📥 Update request body:', req.body);
+    console.log('📥 Fields present in request:', Object.keys(req.body));
+    console.log('📥 Field values:', JSON.stringify(req.body, null, 2));
+    
+    // Construir objeto solo con campos que realmente cambian
+    const poData = {};
+    
+    // Helper function to check if value is meaningful (not empty string, null, or undefined)
+    const isMeaningfulValue = (value) => {
+      return value !== null && value !== undefined && value !== '';
     };
+    
+    // Helper function to add field only if it has a meaningful value or was explicitly set to null
+    const addFieldIfMeaningful = (targetField, ...sourceFields) => {
+      for (const field of sourceFields) {
+        if (req.body.hasOwnProperty(field)) {
+          const value = req.body[field];
+          if (isMeaningfulValue(value)) {
+            poData[targetField] = value;
+            break; // Solo tomar el primer campo que existe y tiene valor
+          }
+          // No agregar campos vacíos a menos que sea una limpieza explícita
+        }
+      }
+    };
+    
+    // Mapear campos solo si están presentes y tienen valor significativo
+    addFieldIfMeaningful('po_number', 'poNumber', 'po_number', 'orderNumber');
+    addFieldIfMeaningful('po_date', 'poDate', 'po_date', 'date');
+    addFieldIfMeaningful('description', 'description', 'name');
+    addFieldIfMeaningful('supplier_name', 'supplierName', 'supplier_name', 'providerName');
+    addFieldIfMeaningful('notes', 'notes');
+    
+    // Manejar cost_center_id especialmente (puede ser null válido)
+    if (req.body.hasOwnProperty('costCenterId') || req.body.hasOwnProperty('cost_center_id') || req.body.hasOwnProperty('centroCostoId')) {
+      const costCenterValue = req.body.costCenterId || req.body.cost_center_id || req.body.centroCostoId;
+      if (costCenterValue !== undefined) {
+        poData.cost_center_id = costCenterValue;
+      }
+    }
+    
+    // Manejar account_category_id especialmente
+    if (req.body.hasOwnProperty('accountCategoryId') || req.body.hasOwnProperty('categoryId')) {
+      const categoryValue = req.body.accountCategoryId || req.body.categoryId;
+      if (categoryValue !== undefined && categoryValue !== null && categoryValue !== '') {
+        poData.account_category_id = categoryValue;
+      }
+    }
+    
+    addFieldIfMeaningful('category_name', 'categoryName', 'category');
+    
+    // Estado requiere mapeo especial
+    if (req.body.hasOwnProperty('status') || req.body.hasOwnProperty('state')) {
+      const statusValue = req.body.status || req.body.state;
+      if (isMeaningfulValue(statusValue)) {
+        poData.status = mapStatusToSpanish(statusValue);
+      }
+    }
+    
+    // Si no hay campos para actualizar, devolver error
+    if (Object.keys(poData).length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No fields to update. Please provide at least one field to modify.'
+      });
+    }
+    
+    console.log('📝 Final poData for update (only changed fields):', poData);
     
     const updated = await ordenCompraModel.update(id, poData);
     
@@ -608,6 +639,7 @@ async function updatePurchaseOrder(req, res, next) {
       data: updated
     });
   } catch (error) {
+    console.error('❌ Error updating purchase order:', error);
     next(error);
   }
 }

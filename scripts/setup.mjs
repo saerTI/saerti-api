@@ -583,7 +583,7 @@ async function createMultidimensionalView() {
         po.id as cost_id,
         'gasto' as transaction_type,
         'real' as cost_type,
-        po.total as amount,
+  (SELECT COALESCE(SUM(i.total),0) FROM purchase_order_items i WHERE i.purchase_order_id = po.id) as amount,
         po.description,
         po.po_date as date,
         YEAR(po.po_date) as period_year,
@@ -628,7 +628,7 @@ async function createMultidimensionalView() {
         CONCAT(COALESCE(cat.group_name, 'Sin Grupo'), ': ', COALESCE(cat.name, 'Sin Categoría')) as category_display,
         
         -- ✅ CAMPOS ADICIONALES ESPECÍFICOS DE PO
-        po.notes,
+  NULL as notes,
         po.po_number as reference_document,
         po.po_number,
         po.po_date,
@@ -721,19 +721,98 @@ async function createMultidimensionalView() {
       LEFT JOIN cost_centers cc ON fc.cost_center_id = cc.id
       LEFT JOIN account_categories cat ON fc.account_category_id = cat.id
       WHERE fc.state IN ('active', 'completed', 'suspended', 'draft')  -- Excluir solo cancelados
+
+      UNION ALL
+
+      -- ==========================================
+      -- PARTE 4: PURCHASE ORDER ITEMS (ítems detallados de órdenes de compra)
+      -- ==========================================
+      SELECT
+        -- ✅ Generar IDs únicos para purchase_order_items (añadir 200000 para evitar conflictos)
+        (poi.id + 200000) as cost_id,
+        'gasto' as transaction_type,
+        'real' as cost_type,
+        poi.total as amount,
+        CONCAT('Item OC: ', COALESCE(poi.description, po.description)) as description,
+        
+        -- ✅ Usar fecha del item o fecha de la PO
+        COALESCE(poi.date, po.po_date) as date,
+        YEAR(COALESCE(poi.date, po.po_date)) as period_year,
+        MONTH(COALESCE(poi.date, po.po_date)) as period_month,
+        po.status,
+        
+        -- ✅ DIMENSIÓN: Centro de Costo (preferir el del item, luego el de la PO)
+        COALESCE(poi_cc.id, po_cc.id) as cost_center_id,
+        COALESCE(poi_cc.code, po_cc.code) as cost_center_code,
+        COALESCE(poi_cc.name, po_cc.name) as cost_center_name,
+        COALESCE(poi_cc.type, po_cc.type) as cost_center_type,
+        COALESCE(poi_cc.client, po_cc.client) as cost_center_client,
+        COALESCE(poi_cc.status, po_cc.status) as cost_center_status,
+        
+        -- ✅ DIMENSIÓN: Categoría Contable (preferir la del item, luego la de la PO)
+        COALESCE(poi_cat.id, po_cat.id) as category_id,
+        COALESCE(poi_cat.code, po_cat.code) as category_code,
+        COALESCE(poi_cat.name, po_cat.name) as category_name,
+        COALESCE(poi_cat.type, po_cat.type) as category_type,
+        COALESCE(poi_cat.group_name, po_cat.group_name) as category_group,
+        
+        -- ✅ DIMENSIÓN: Proveedor (desde purchase_orders)
+        s.id as supplier_id,
+        s.tax_id as supplier_tax_id,
+        s.legal_name as supplier_name,
+        s.commercial_name as supplier_commercial_name,
+        
+        -- ✅ DIMENSIÓN: Empleado (NULL para purchase_order_items)
+        NULL as employee_id,
+        NULL as employee_tax_id,
+        NULL as employee_name,
+        NULL as employee_position,
+        NULL as employee_department,
+        
+        -- ✅ FUENTE DEL DOCUMENTO
+        'orden_compra_item' as source_type,
+        poi.id as source_id,
+        
+        -- ✅ CAMPOS PARA NAVEGACIÓN
+        CONCAT(YEAR(COALESCE(poi.date, po.po_date)), '-', 
+               LPAD(MONTH(COALESCE(poi.date, po.po_date)), 2, '0')) as period_key,
+        CONCAT(COALESCE(poi_cc.type, po_cc.type), ': ', COALESCE(poi_cc.name, po_cc.name)) as cost_center_display,
+        CONCAT(COALESCE(COALESCE(poi_cat.group_name, po_cat.group_name), 'Sin Grupo'), ': ', 
+               COALESCE(COALESCE(poi_cat.name, po_cat.name), 'Sin Categoría')) as category_display,
+        
+        -- ✅ CAMPOS ADICIONALES ESPECÍFICOS DE PURCHASE ORDER ITEMS
+        CONCAT('Glosa: ', COALESCE(poi.glosa, 'Sin glosa'), ' - Moneda: ', poi.currency) as notes,
+        CONCAT(po.po_number, '-', poi.id) as reference_document,
+        po.po_number,
+        po.po_date,
+        
+        -- ✅ TIMESTAMPS
+        poi.created_at,
+        poi.updated_at
+        
+      FROM purchase_order_items poi
+      INNER JOIN purchase_orders po ON poi.purchase_order_id = po.id
+      LEFT JOIN cost_centers poi_cc ON poi.cost_center_id = poi_cc.id
+      LEFT JOIN cost_centers po_cc ON po.cost_center_id = po_cc.id
+      LEFT JOIN account_categories poi_cat ON poi.account_category_id = poi_cat.id
+      LEFT JOIN account_categories po_cat ON po.account_category_id = po_cat.id
+      LEFT JOIN suppliers s ON po.supplier_id = s.id
+      WHERE po.status IN ('activo', 'en_progreso', 'completado')  -- Excluir borradores y cancelados
       
       ORDER BY date DESC, created_at DESC
     `);
     
     console.log('✅ Vista multidimensional UNIFICADA creada');
-    console.log('🎯 Ahora incluye TRES fuentes:');
+    console.log('🎯 Ahora incluye CUATRO fuentes:');
     console.log('   📊 accounting_costs (source_type: manual, nomina, etc.)');
     console.log('   📊 purchase_orders (source_type: orden_compra)');
+    console.log('   📊 purchase_order_items (source_type: orden_compra_item) ← NUEVO');
     console.log('   📊 fixed_costs (source_type: costo_fijo)');
     console.log('');
     console.log('🎯 Ejemplos de consultas:');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_type = "proyecto"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE source_type = "orden_compra"');
+    console.log('   SELECT * FROM multidimensional_costs_view WHERE source_type = "orden_compra_item"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE source_type = "costo_fijo"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE category_group = "Materiales"');
     console.log('   SELECT * FROM multidimensional_costs_view WHERE cost_center_id = 2 AND category_id = 14');
@@ -745,6 +824,7 @@ async function createMultidimensionalView() {
     console.log('   - factura: Costos vinculados a facturas');
     console.log('   - orden_compra_ref: Accounting costs referenciando PO');
     console.log('   - orden_compra: Purchase orders directas');
+    console.log('   - orden_compra_item: Items detallados de purchase orders ← NUEVO');
     console.log('   - costo_fijo: Fixed costs periódicos');
     
   } catch (error) {
@@ -1239,6 +1319,10 @@ async function implementHito1Simplified(employeesData = []) {
     console.log('\n2️⃣ Evolucionando tabla accounting_costs...');
     await evolveAccountingCostsTable();
     
+    // Paso 2.1: Evolucionar tabla purchase_order_items
+    console.log('\n2️⃣.1 Evolucionando tabla purchase_order_items...');
+    await evolvePurchaseOrderItemsTable();
+    
     // Paso 3: Crear vista multidimensional
     console.log('\n3️⃣ Creando vista multidimensional...');
     await createMultidimensionalView();
@@ -1251,6 +1335,7 @@ async function implementHito1Simplified(employeesData = []) {
     console.log('🎯 Funcionalidades implementadas:');
     console.log('   ✅ Tabla employees robusta');
     console.log('   ✅ accounting_costs evolucionada con navegación multidimensional');
+    console.log('   ✅ purchase_order_items evolucionada con cost_center_id y account_category_id');
     console.log('   ✅ Vista multidimensional para filtros tipo ecommerce');
     console.log('   ✅ Empleados reales insertados');
     console.log('\n🚀 Tu sistema está listo para navegación multidimensional!');
@@ -1371,11 +1456,7 @@ async function createPurchaseOrdersTable() {
         supplier_id BIGINT UNSIGNED,
         supplier_name VARCHAR(255),
         account_category_id BIGINT UNSIGNED,
-        description TEXT,
-        notes TEXT COMMENT 'Additional notes or comments',
-        subtotal DECIMAL(15,2) NOT NULL,
-        total DECIMAL(15,2),
-        currency VARCHAR(10) DEFAULT 'CLP',
+  description TEXT,
         status ENUM('borrador', 'activo', 'en_progreso', 'suspendido', 'completado', 'cancelado') DEFAULT 'borrador',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -1396,7 +1477,122 @@ async function createPurchaseOrdersTable() {
     throw error;
   }
 }
+async function createPurchaseOrderItemsTable() {
+  try {
+    const exists = await checkTableExists('purchase_order_items');
+    if (exists) {
+      console.log('ℹ️ purchase_order_items ya existe, se omite creación');
+      return;
+    }
 
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS purchase_order_items (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        purchase_order_id BIGINT UNSIGNED NOT NULL COMMENT 'FK a purchase_orders',
+        cost_center_id BIGINT UNSIGNED NULL COMMENT 'Centro de costo asociado al ítem',
+        account_category_id BIGINT UNSIGNED NULL COMMENT 'Categoría contable del ítem',
+        date DATE NOT NULL COMMENT 'Fecha del ítem',
+        description TEXT NULL COMMENT 'Descripción detallada',
+        glosa TEXT NULL COMMENT 'Glosa / nota',
+        currency VARCHAR(10) DEFAULT 'CLP' COMMENT 'Moneda del ítem',
+        total DECIMAL(15,2) NOT NULL DEFAULT 0.00 COMMENT 'Monto total del ítem',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
+        FOREIGN KEY (account_category_id) REFERENCES account_categories(id) ON DELETE SET NULL,
+        INDEX idx_po (purchase_order_id),
+        INDEX idx_cost_center (cost_center_id),
+        INDEX idx_account_category (account_category_id),
+        INDEX idx_date (date)
+      )
+    `);
+
+    console.log('✅ Tabla purchase_order_items creada (→ purchase_orders, cost_centers, account_categories)');
+  } catch (error) {
+    console.error('❌ Error creando purchase_order_items:', error);
+    throw error;
+  }
+}
+
+// Evolve existing purchase_order_items table to add new foreign keys
+async function evolvePurchaseOrderItemsTable() {
+  try {
+    // Check if the table exists
+    const exists = await checkTableExists('purchase_order_items');
+    if (!exists) {
+      console.log('ℹ️ purchase_order_items table does not exist, skipping evolution');
+      return;
+    }
+
+    // Check if the new columns already exist
+    const [columns] = await conn.query('DESCRIBE purchase_order_items');
+    const hasCostCenterColumn = columns.some(col => col.Field === 'cost_center_id');
+    const hasAccountCategoryColumn = columns.some(col => col.Field === 'account_category_id');
+
+    if (hasCostCenterColumn && hasAccountCategoryColumn) {
+      console.log('ℹ️ purchase_order_items table already has the new columns, skipping evolution');
+      return;
+    }
+
+    console.log('🔄 Evolucionando tabla purchase_order_items...');
+    console.log('📋 Se añadirán las siguientes columnas:');
+    console.log('   - cost_center_id: para asociar cada ítem a un centro de costo específico');
+    console.log('   - account_category_id: para categorizar contablemente cada ítem');
+
+    // Add new columns if they don't exist
+    if (!hasCostCenterColumn) {
+      await conn.query(`
+        ALTER TABLE purchase_order_items 
+        ADD COLUMN cost_center_id BIGINT UNSIGNED NULL COMMENT 'Centro de costo asociado al ítem' AFTER purchase_order_id
+      `);
+      console.log('   ✅ Columna cost_center_id añadida');
+    }
+
+    if (!hasAccountCategoryColumn) {
+      await conn.query(`
+        ALTER TABLE purchase_order_items 
+        ADD COLUMN account_category_id BIGINT UNSIGNED NULL COMMENT 'Categoría contable del ítem' AFTER cost_center_id
+      `);
+      console.log('   ✅ Columna account_category_id añadida');
+    }
+
+    // Add foreign keys
+    if (!hasCostCenterColumn) {
+      await conn.query(`
+        ALTER TABLE purchase_order_items 
+        ADD FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL
+      `);
+      console.log('   ✅ Foreign key a cost_centers añadida');
+    }
+
+    if (!hasAccountCategoryColumn) {
+      await conn.query(`
+        ALTER TABLE purchase_order_items 
+        ADD FOREIGN KEY (account_category_id) REFERENCES account_categories(id) ON DELETE SET NULL
+      `);
+      console.log('   ✅ Foreign key a account_categories añadida');
+    }
+
+    // Add indexes for better performance
+    if (!hasCostCenterColumn) {
+      await conn.query('CREATE INDEX idx_cost_center ON purchase_order_items(cost_center_id)');
+      console.log('   ✅ Índice para cost_center_id creado');
+    }
+
+    if (!hasAccountCategoryColumn) {
+      await conn.query('CREATE INDEX idx_account_category ON purchase_order_items(account_category_id)');
+      console.log('   ✅ Índice para account_category_id creado');
+    }
+
+    console.log('✅ Tabla purchase_order_items evolucionada exitosamente');
+    console.log('🎯 Ahora cada ítem puede tener su propio centro de costo y categoría contable');
+
+  } catch (error) {
+    console.error('❌ Error evolucionando purchase_order_items:', error);
+    throw error;
+  }
+}
 
 // Create invoices table (now references cost_centers)
 async function createInvoicesTable() {
@@ -1681,7 +1877,7 @@ async function createConsolidatedView() {
         po.po_number,
         po.po_date,
         po.description as po_description,
-        po.subtotal as po_amount,
+  (SELECT COALESCE(SUM(i.total),0) FROM purchase_order_items i WHERE i.purchase_order_id = po.id) as po_amount,
         po.status as po_status,
         
         -- Cost center information (UNIFIED)
@@ -1726,7 +1922,7 @@ async function createConsolidatedView() {
           ELSE 'Sin Factura'
         END as has_invoice,
         
-        COALESCE(inv.total_amount, po.subtotal) as effective_amount,
+  COALESCE(inv.total_amount, (SELECT COALESCE(SUM(i.total),0) FROM purchase_order_items i WHERE i.purchase_order_id = po.id)) as effective_amount,
         
         -- General process status
         CASE 
@@ -2081,14 +2277,31 @@ async function createAdminUser() {
 // Create additional indexes for performance
 async function createAdditionalIndexes() {
   try {
-    await conn.query('CREATE INDEX IF NOT EXISTS idx_po_date_status ON purchase_orders(po_date, status)');
-    await conn.query('CREATE INDEX IF NOT EXISTS idx_invoice_date_status ON invoices(issue_date, document_status)');
-    await conn.query('CREATE INDEX IF NOT EXISTS idx_account_group_code ON account_categories(group_name, code)');
-    await conn.query('CREATE INDEX IF NOT EXISTS idx_invoice_due_date ON invoices(due_date, payment_status)');
-    await conn.query('CREATE INDEX IF NOT EXISTS idx_cost_center_type ON cost_centers(type, status)');
-    await conn.query('CREATE INDEX IF NOT EXISTS idx_costs_period_center ON accounting_costs(period, cost_center_id)');
+    console.log('🔄 Creating additional indexes for optimization...');
     
-    console.log('✅ Additional indexes created for optimization');
+    const indexes = [
+      { name: 'idx_po_date_status', table: 'purchase_orders', columns: '(po_date, status)' },
+      { name: 'idx_invoice_date_status', table: 'invoices', columns: '(issue_date, document_status)' },
+      { name: 'idx_account_group_code', table: 'account_categories', columns: '(group_name, code)' },
+      { name: 'idx_invoice_due_date', table: 'invoices', columns: '(due_date, payment_status)' },
+      { name: 'idx_cost_center_type', table: 'cost_centers', columns: '(type, status)' },
+      { name: 'idx_costs_period_center', table: 'accounting_costs', columns: '(period, cost_center_id)' }
+    ];
+
+    for (const index of indexes) {
+      try {
+        await conn.query(`CREATE INDEX ${index.name} ON ${index.table}${index.columns}`);
+        console.log(`   ✅ Índice ${index.name} creado en ${index.table}`);
+      } catch (error) {
+        if (error.code === 'ER_DUP_KEYNAME') {
+          console.log(`   ℹ️ Índice ${index.name} ya existe en ${index.table}`);
+        } else {
+          console.error(`   ❌ Error creando índice ${index.name}:`, error.message);
+        }
+      }
+    }
+    
+    console.log('✅ Additional indexes creation process completed');
   } catch (error) {
     console.error('❌ Error creating additional indexes:', error);
   }
@@ -2221,6 +2434,7 @@ async function setup() {
     await createAccountCategoriesTable();
     await createSuppliersTable();
     await createPurchaseOrdersTable();
+    await createPurchaseOrderItemsTable();
     await createInvoicesTable();
     await createInvoicePaymentsTable();
     await createFixedCostsTable();
@@ -2303,6 +2517,7 @@ async function showSchemaStatus() {
       'account_categories', 
       'accounting_costs',
       'purchase_orders',
+  'purchase_order_items',
       'invoices',
       'suppliers',
       'users'

@@ -124,35 +124,18 @@ router.post(
   '/api/ordenes-compra/batch',
   authenticate,
   [
-    body('*.name')
-      .notEmpty().withMessage('El nombre es obligatorio')
-      .isLength({ min: 3, max: 255 }).withMessage('El nombre debe tener entre 3 y 255 caracteres'),
     body('*.orderNumber')
       .notEmpty().withMessage('El número de orden es obligatorio')
       .isLength({ min: 1, max: 50 }).withMessage('El número de orden debe tener entre 1 y 50 caracteres'),
     body('*.providerName')
       .notEmpty().withMessage('El nombre del proveedor es obligatorio')
-      .isLength({ min: 2, max: 100 }).withMessage('El proveedor debe tener entre 2 y 100 caracteres'),
-    body('*.amount')
-      .notEmpty().withMessage('El monto es obligatorio')
-      .isNumeric().withMessage('El monto debe ser un número')
-      .custom(value => {
-        if (parseFloat(value) < 0) {
-          throw new Error('El monto no puede ser negativo');
-        }
-        return true;
-      }),
-    body('*.date')
-      .notEmpty().withMessage('La fecha es obligatoria')
+      .isLength({ min: 2, max: 255 }).withMessage('El proveedor debe tener entre 2 y 255 caracteres'),
+    body('*.date').optional()
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('*.paymentType').optional()
-      .isIn(['credit', 'cash']).withMessage('Tipo de pago no válido'),
     body('*.state').optional()
       .isIn(['borrador', 'activo', 'en_progreso', 'suspendido', 'completado', 'cancelado']).withMessage('Estado no válido'),
-    body('*.categoriaNombre').optional()
-      .isString().withMessage('Nombre de categoría inválido'),
-    body('*.centroCosto').optional()
-      .isString().withMessage('Código de centro de costo inválido')
+    body('*.categoriaNombre').optional().isString(),
+    body('*.centroCosto').optional().isString()
   ],
   createPurchaseOrdersBatch
 );
@@ -166,39 +149,19 @@ router.post(
   '/api/ordenes-compra',
   authenticate,
   [
-    body('name')
-      .notEmpty().withMessage('El nombre es obligatorio')
-      .isLength({ min: 3, max: 255 }).withMessage('El nombre debe tener entre 3 y 255 caracteres'),
     body('orderNumber')
       .notEmpty().withMessage('El número de orden es obligatorio')
       .isLength({ min: 1, max: 50 }).withMessage('El número de orden debe tener entre 1 y 50 caracteres'),
     body('providerName')
       .notEmpty().withMessage('El nombre del proveedor es obligatorio')
-      .isLength({ min: 2, max: 100 }).withMessage('El proveedor debe tener entre 2 y 100 caracteres'),
-    body('amount')
-      .notEmpty().withMessage('El monto es obligatorio')
-      .isNumeric().withMessage('El monto debe ser un número')
-      .custom(value => {
-        if (parseFloat(value) < 0) {
-          throw new Error('El monto no puede ser negativo');
-        }
-        return true;
-      }),
-    body('date')
-      .notEmpty().withMessage('La fecha es obligatoria')
+      .isLength({ min: 2, max: 255 }).withMessage('El proveedor debe tener entre 2 y 255 caracteres'),
+    body('date').optional()
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('paymentType').optional()
-      .isIn(['credit', 'cash']).withMessage('Tipo de pago no válido'),
     body('state').optional()
       .isIn(['borrador', 'activo', 'en_progreso', 'suspendido', 'completado', 'cancelado']).withMessage('Estado no válido'),
-    body('categoriaNombre').optional()
-      .isString().withMessage('Nombre de categoría inválido'),
-    body('centroCosto').optional()
-      .isString().withMessage('Código de centro de costo inválido'),
-    body('description').optional()
-      .isLength({ max: 500 }).withMessage('La descripción no puede exceder 500 caracteres'),
-    body('notes').optional()
-      .isLength({ max: 1000 }).withMessage('Las notas no pueden exceder 1000 caracteres')
+    body('categoriaNombre').optional().isString(),
+    body('centroCosto').optional().isString(),
+    body('description').optional().isLength({ max: 500 })
   ],
   createPurchaseOrder
 );
@@ -234,34 +197,13 @@ router.put(
   '/api/ordenes-compra/:id',
   authenticate,
   [
-    body('name').optional()
-      .isLength({ min: 3, max: 255 }).withMessage('El nombre debe tener entre 3 y 255 caracteres'),
-    body('orderNumber').optional()
-      .isLength({ min: 1, max: 50 }).withMessage('El número de orden debe tener entre 1 y 50 caracteres'),
-    body('providerName').optional()
-      .isLength({ min: 2, max: 100 }).withMessage('El proveedor debe tener entre 2 y 100 caracteres'),
-    body('amount').optional()
-      .isNumeric().withMessage('El monto debe ser un número')
-      .custom(value => {
-        if (parseFloat(value) < 0) {
-          throw new Error('El monto no puede ser negativo');
-        }
-        return true;
-      }),
-    body('date').optional()
-      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('paymentType').optional()
-      .isIn(['credit', 'cash']).withMessage('Tipo de pago no válido'),
-    body('state').optional()
-      .isIn(['borrador', 'activo', 'en_progreso', 'suspendido', 'completado', 'cancelado']).withMessage('Estado no válido'),
-    body('categoriaNombre').optional()
-      .isString().withMessage('Nombre de categoría inválido'),
-    body('centroCosto').optional()
-      .isString().withMessage('Código de centro de costo inválido'),
-    body('description').optional()
-      .isLength({ max: 500 }).withMessage('La descripción no puede exceder 500 caracteres'),
-    body('notes').optional()
-      .isLength({ max: 1000 }).withMessage('Las notas no pueden exceder 1000 caracteres')
+    body('orderNumber').optional().isLength({ min: 1, max: 50 }),
+    body('providerName').optional().isLength({ min: 2, max: 255 }),
+    body('date').optional().matches(/^\d{4}-\d{2}-\d{2}$/),
+    body('state').optional().isIn(['borrador', 'activo', 'en_progreso', 'suspendido', 'completado', 'cancelado']),
+    body('categoriaNombre').optional().isString(),
+    body('centroCosto').optional().isString(),
+    body('description').optional().isLength({ max: 500 })
   ],
   updatePurchaseOrder
 );
