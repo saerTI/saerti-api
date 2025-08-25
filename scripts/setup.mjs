@@ -538,7 +538,7 @@ async function createMultidimensionalView() {
         CASE 
           WHEN ac.purchase_order_id IS NOT NULL THEN 'orden_compra_ref'
           WHEN ac.payroll_id IS NOT NULL THEN 'nomina'
-          WHEN ac.social_security_id IS NOT NULL THEN 'seguridad_social'
+          WHEN ac.previsionales_id IS NOT NULL THEN 'seguridad_social'
           WHEN ac.invoice_id IS NOT NULL THEN 'factura'
           ELSE 'manual'
         END as source_type,
@@ -546,7 +546,7 @@ async function createMultidimensionalView() {
         COALESCE(
           ac.purchase_order_id,
           ac.payroll_id, 
-          ac.social_security_id,
+          ac.previsionales_id,
           ac.invoice_id,
           ac.id
         ) as source_id,
@@ -2102,14 +2102,14 @@ async function createInvoicePaymentsTable() {
 // Create social security table (now references cost_centers)
 async function createSocialSecurityTable() {
   try {
-    const exists = await checkTableExists('social_security');
+    const exists = await checkTableExists('previsionales');
     if (exists) {
-      console.log('ℹ️ Social_security table already exists');
+      console.log('ℹ️ previsionales table already exists');
       return;
     }
     
     await conn.query(`
-      CREATE TABLE IF NOT EXISTS social_security (
+      CREATE TABLE IF NOT EXISTS previsionales (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         employee_id BIGINT UNSIGNED NOT NULL,
         employee_name VARCHAR(100) NOT NULL,
@@ -2139,9 +2139,9 @@ async function createSocialSecurityTable() {
         INDEX idx_type (type)
       )
     `);
-    console.log('✅ Social_security table created (→ cost_centers)');
+    console.log('✅ previsionales table created (→ cost_centers)');
   } catch (error) {
-    console.error('❌ Error creating social_security table:', error);
+    console.error('❌ Error creating previsionales table:', error);
     throw error;
   }
 }
@@ -2229,7 +2229,7 @@ async function createAccountingCostsTable() {
         -- Optional references to source documents
         invoice_id BIGINT UNSIGNED NULL,
         purchase_order_id BIGINT UNSIGNED NULL,
-        social_security_id BIGINT UNSIGNED NULL,
+        previsionales_id BIGINT UNSIGNED NULL,
         payroll_id BIGINT UNSIGNED NULL,
         
         -- Additional information
@@ -2250,7 +2250,7 @@ async function createAccountingCostsTable() {
         FOREIGN KEY (account_category_id) REFERENCES account_categories(id),
         FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE SET NULL,
         FOREIGN KEY (purchase_order_id) REFERENCES purchase_orders(id) ON DELETE SET NULL,
-        FOREIGN KEY (social_security_id) REFERENCES social_security(id) ON DELETE SET NULL,
+        FOREIGN KEY (previsionales_id) REFERENCES previsionales(id) ON DELETE SET NULL,
         FOREIGN KEY (payroll_id) REFERENCES payroll(id) ON DELETE SET NULL,
         FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
@@ -2960,7 +2960,7 @@ async function showSchemaStatus() {
     console.log('   ✅ invoices.cost_center_id → cost_centers.id');
     console.log('   ✅ accounting_costs.cost_center_id → cost_centers.id');
     console.log('   ✅ accounting_costs.account_category_id → account_categories.id');
-    console.log('   ✅ social_security.cost_center_id → cost_centers.id');
+    console.log('   ✅ previsionales.cost_center_id → cost_centers.id');
     console.log('   ✅ payroll.cost_center_id → cost_centers.id');
     console.log('   ✅ incomes.cost_center_id → cost_centers.id');
     
