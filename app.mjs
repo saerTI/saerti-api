@@ -19,6 +19,7 @@ import multidimensionalRoutes from './src/routes/CC/multidimensionalRoutes.mjs';
 import fixedCostsRoutes from './src/routes/CC/fixedCostsRoutes.mjs';
 import empleadosRoutes from './src/routes/CC/empleadosRoutes.mjs';
 import incomeRoutes from './src/routes/incomeRoutes.mjs';
+import incomeCategoriesRoutes from './src/routes/incomeCategoriesRoutes.mjs';
 
 import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
 
@@ -66,6 +67,7 @@ app.use(multidimensionalRoutes);
 app.use(fixedCostsRoutes);
 app.use(empleadosRoutes);
 app.use(incomeRoutes);
+app.use('/api/income-categories', incomeCategoriesRoutes);
 
 app.use(budgetSuggestionsRoutes);
 

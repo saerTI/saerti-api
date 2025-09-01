@@ -1278,6 +1278,7 @@ async function createIncomesTable() {
         
         -- References
         cost_center_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'Centro de costo asociado',
+        category_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'Categoría de ingreso',
         
         -- Additional information
         description TEXT DEFAULT NULL COMMENT 'Descripción adicional',
@@ -1291,6 +1292,7 @@ async function createIncomesTable() {
         
         -- Foreign Keys
         FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
+        FOREIGN KEY (category_id) REFERENCES income_categories(id) ON DELETE SET NULL,
         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
         
@@ -1302,6 +1304,7 @@ async function createIncomesTable() {
         INDEX idx_state (state),
         INDEX idx_payment_status (payment_status),
         INDEX idx_cost_center (cost_center_id),
+        INDEX idx_category (category_id),
         INDEX idx_ep_total (ep_total),
         INDEX idx_factoring (factoring),
         INDEX idx_payment_date (payment_date),
@@ -1313,6 +1316,77 @@ async function createIncomesTable() {
     console.log('✅ Incomes table created');
   } catch (error) {
     console.error('❌ Error creating incomes table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// INCOME CATEGORIES TABLE
+// ============================================
+async function createIncomeCategoriesTable() {
+  console.log('📊 Creating income_categories table...');
+  try {
+    if (await checkTableExists('income_categories')) {
+      console.log('ℹ️ income_categories table already exists, skipping...');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS income_categories (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        categoria VARCHAR(100) NOT NULL COMMENT 'Nombre de la categoría de ingreso',
+        active BOOLEAN DEFAULT TRUE COMMENT 'Estado activo/inactivo',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        -- Indexes
+        INDEX idx_categoria (categoria),
+        INDEX idx_active (active),
+        INDEX idx_created_at (created_at)
+      )
+    `);
+    console.log('✅ Income categories table created');
+  } catch (error) {
+    console.error('❌ Error creating income_categories table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// INSERT DEFAULT INCOME CATEGORIES
+// ============================================
+async function insertDefaultIncomeCategories() {
+  try {
+    console.log('📝 Inserting default income categories...');
+    
+    // Check if data already exists
+    const [existingData] = await conn.query('SELECT COUNT(*) as count FROM income_categories');
+    if (existingData[0].count > 0) {
+      console.log('ℹ️ Income categories already exist, skipping...');
+      return;
+    }
+
+    const categories = [
+      'Pago de Clientes',
+      'Anticipos',
+      'Estados de Pago',
+      'Venta de Activos',
+      'Devoluciones',
+      'Subsidios',
+      'Retorno de Inversiones',
+      'Otros Ingresos'
+    ];
+
+    for (const categoria of categories) {
+      await conn.query(`
+        INSERT INTO income_categories (categoria, active) 
+        VALUES (?, TRUE)
+      `, [categoria]);
+    }
+
+    console.log('✅ Default income categories inserted');
+  } catch (error) {
+    console.error('❌ Error inserting default income categories:', error);
     throw error;
   }
 }
@@ -2855,6 +2929,7 @@ async function setup() {
     await createInvoicesTable();
     await createInvoicePaymentsTable();
     await createFixedCostsTable();
+    await createIncomeCategoriesTable();
     await createIncomesTable();
 
     
@@ -2894,6 +2969,7 @@ async function setup() {
     await insertAccountingCostsExample();
     await insertClients();
     await insertFixedCostsTestData();
+    await insertDefaultIncomeCategories();
     await insertSampleIncomes();
 
     // ==========================================
@@ -2941,6 +3017,7 @@ async function showSchemaStatus() {
       'invoices',
       'suppliers',
       'users',
+      'income_categories',
       'incomes'
     ];
     

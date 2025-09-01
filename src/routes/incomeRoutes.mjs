@@ -92,6 +92,8 @@ router.post(
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
     body('cost_center_code').optional()
       .isLength({ max: 20 }).withMessage('El código de centro de costo no puede exceder 20 caracteres'),
+    body('category_id').optional()
+      .isInt({ min: 1 }).withMessage('El ID de categoría debe ser un número entero positivo'),
     body('state').optional()
       .isIn(['borrador', 'activo', 'facturado', 'pagado', 'cancelado']).withMessage('Estado no válido'),
     body('description').optional()
@@ -132,6 +134,8 @@ router.post(
     body('*.date')
       .notEmpty().withMessage('La fecha es obligatoria')
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
+    body('*.category_id').optional()
+      .isInt({ min: 1 }).withMessage('El ID de categoría debe ser un número entero positivo'),
     body('*.payment_type').optional()
       .isIn(['transferencia', 'cheque', 'efectivo', 'factoring']).withMessage('Tipo de pago no válido'),
     body('*.state').optional()
@@ -165,6 +169,8 @@ router.put(
       }),
     body('date').optional()
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
+    body('category_id').optional()
+      .isInt({ min: 1 }).withMessage('El ID de categoría debe ser un número entero positivo'),
     body('state').optional()
       .isIn(['borrador', 'activo', 'facturado', 'pagado', 'cancelado']).withMessage('Estado no válido'),
     body('description').optional()
@@ -200,6 +206,25 @@ router.delete(
   '/api/ingresos/:id',
   authenticate,
   deleteIncome
+);
+
+/**
+ * @route   GET /api/cost-centers
+ * @desc    Obtener lista de centros de costos activos
+ * @access  Privado
+ */
+router.get(
+  '/api/cost-centers',
+  authenticate,
+  async (req, res) => {
+    try {
+      const { getCostCenters } = await import('../controllers/incomeController.mjs');
+      await getCostCenters(req, res);
+    } catch (error) {
+      console.error('Error loading getCostCenters:', error);
+      res.status(500).json({ error: 'Error interno del servidor' });
+    }
+  }
 );
 
 export default router;
