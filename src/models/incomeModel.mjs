@@ -514,8 +514,8 @@ export async function getStats(filters = {}) {
         SUM(CASE WHEN i.state = 'facturado' THEN 1 ELSE 0 END) as facturado,
         SUM(CASE WHEN i.state = 'pagado' THEN 1 ELSE 0 END) as pagado,
         SUM(CASE WHEN i.state = 'cancelado' THEN 1 ELSE 0 END) as cancelado,
-        SUM(i.ep_total) as monto_total,
-        AVG(i.ep_total) as monto_promedio,
+        SUM(i.total_amount) as monto_total,
+        AVG(i.total_amount) as monto_promedio,
         SUM(CASE WHEN i.factoring IS NOT NULL AND i.factoring != '' THEN 1 ELSE 0 END) as factoring_count,
         SUM(CASE WHEN i.factoring IS NULL OR i.factoring = '' THEN 1 ELSE 0 END) as transfer_count
       ${baseQuery}
@@ -527,7 +527,7 @@ export async function getStats(filters = {}) {
         i.client_name,
         i.client_tax_id,
         COUNT(*) as cantidad,
-        SUM(i.ep_total) as monto_total
+        SUM(i.total_amount) as monto_total
       ${baseQuery}
       GROUP BY i.client_name, i.client_tax_id
       ORDER BY monto_total DESC
@@ -540,7 +540,7 @@ export async function getStats(filters = {}) {
         cc.code,
         cc.name,
         COUNT(*) as cantidad,
-        SUM(i.ep_total) as monto_total
+        SUM(i.total_amount) as monto_total
       ${baseQuery}
       AND cc.id IS NOT NULL
       GROUP BY cc.id, cc.code, cc.name

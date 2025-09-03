@@ -567,9 +567,40 @@ async function getIncomeStats(req, res, next) {
     
     const stats = await incomeModel.getStats(filters);
     
+    // ✅ TRANSFORMAR ESTADÍSTICAS PARA EL FRONTEND
+    const transformedStats = {
+      total: parseInt(stats.total) || 0,
+      borrador: parseInt(stats.borrador) || 0,
+      activo: parseInt(stats.activo) || 0,
+      facturado: parseInt(stats.facturado) || 0,
+      pagado: parseInt(stats.pagado) || 0,
+      cancelado: parseInt(stats.cancelado) || 0,
+      monto_total: parseFloat(stats.monto_total) || 0,
+      monto_promedio: parseFloat(stats.monto_promedio) || 0,
+      
+      // Mapear a nombres que espera el frontend
+      totalIngresos: parseInt(stats.total) || 0,
+      montoTotal: parseFloat(stats.monto_total) || 0,
+      
+      // Estados para el frontend
+      draft: parseInt(stats.borrador) || 0,
+      active: parseInt(stats.activo) || 0,
+      invoiced: parseInt(stats.facturado) || 0,
+      paid: parseInt(stats.pagado) || 0,
+      cancelled: parseInt(stats.cancelado) || 0,
+      
+      // Tipos de pago
+      factoringCount: parseInt(stats.factoring_count) || 0,
+      transferCount: parseInt(stats.transfer_count) || 0,
+      
+      // Agrupaciones
+      porCliente: stats.por_cliente || {},
+      porCentro: stats.por_centro || {}
+    };
+    
     res.json({
       success: true,
-      data: stats
+      data: transformedStats
     });
   } catch (error) {
     next(error);
