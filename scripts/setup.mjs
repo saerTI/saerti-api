@@ -1353,6 +1353,76 @@ async function createIncomeCategoriesTable() {
 }
 
 // ============================================
+// FACTORING ENTITIES TABLE
+// ============================================
+async function createFactoringEntitiesTable() {
+  console.log('📊 Creating factoring_entities table...');
+  try {
+    if (await checkTableExists('factoring_entities')) {
+      console.log('ℹ️ factoring_entities table already exists, skipping...');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS factoring_entities (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL UNIQUE COMMENT 'Nombre de la entidad de factoring'
+      )
+    `);
+    console.log('✅ Factoring entities table created');
+  } catch (error) {
+    console.error('❌ Error creating factoring_entities table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// FACTORING TABLE
+// ============================================
+async function createFactoringTable() {
+  console.log('📊 Creating factoring table...');
+  try {
+    if (await checkTableExists('factoring')) {
+      console.log('ℹ️ factoring table already exists, skipping...');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS factoring (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        factoring_entities_id INT NOT NULL COMMENT 'Referencia a la entidad de factoring',
+        interest_rate DECIMAL(5,2) NOT NULL COMMENT 'Tasa de interés del factoring',
+        mount DECIMAL(15,2) NOT NULL COMMENT 'Monto del factoring',
+        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Referencia al centro de costos',
+        date_factoring DATE NOT NULL COMMENT 'Fecha del factoring',
+        date_expiration DATE NOT NULL COMMENT 'Fecha de vencimiento',
+        payment_status INT DEFAULT 0 COMMENT 'Estado de pago - valor numérico para control interno',
+        status ENUM('Pendiente', 'Girado y no pagado', 'Girado y pagado') NOT NULL DEFAULT 'Pendiente' COMMENT 'Estado del factoring',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        -- Foreign Keys
+        FOREIGN KEY (factoring_entities_id) REFERENCES factoring_entities(id) ON DELETE RESTRICT,
+        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE RESTRICT,
+        
+        -- Indexes
+        INDEX idx_factoring_entity (factoring_entities_id),
+        INDEX idx_cost_center (cost_center_id),
+        INDEX idx_date_factoring (date_factoring),
+        INDEX idx_date_expiration (date_expiration),
+        INDEX idx_status (status),
+        INDEX idx_payment_status (payment_status),
+        INDEX idx_created_at (created_at)
+      )
+    `);
+    console.log('✅ Factoring table created');
+  } catch (error) {
+    console.error('❌ Error creating factoring table:', error);
+    throw error;
+  }
+}
+
+// ============================================
 // INSERT DEFAULT INCOME CATEGORIES
 // ============================================
 async function insertDefaultIncomeCategories() {
@@ -2930,6 +3000,8 @@ async function setup() {
     await createInvoicePaymentsTable();
     await createFixedCostsTable();
     await createIncomeCategoriesTable();
+    await createFactoringEntitiesTable();
+    await createFactoringTable();
     await createIncomesTable();
 
     
@@ -3013,11 +3085,13 @@ async function showSchemaStatus() {
       'account_categories', 
       'accounting_costs',
       'purchase_orders',
-  'purchase_order_items',
+      'purchase_order_items',
       'invoices',
       'suppliers',
       'users',
       'income_categories',
+      'factoring_entities',
+      'factoring',
       'incomes'
     ];
     
@@ -3040,6 +3114,8 @@ async function showSchemaStatus() {
     console.log('   ✅ previsionales.cost_center_id → cost_centers.id');
     console.log('   ✅ payroll.cost_center_id → cost_centers.id');
     console.log('   ✅ incomes.cost_center_id → cost_centers.id');
+    console.log('   ✅ factoring.factoring_entities_id → factoring_entities.id');
+    console.log('   ✅ factoring.cost_center_id → cost_centers.id');
     
   } catch (error) {
     console.error('Error showing schema status:', error);
