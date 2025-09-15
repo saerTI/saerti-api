@@ -1,121 +1,113 @@
 import { Router } from 'express';
-import { body } from 'express-validator';
+import { body, param } from 'express-validator';
 import { authenticate } from '../../middleware/auth.mjs';
 import previsionalController from '../../controllers/CC/previsionalController.mjs';
 
 const router = Router();
 
-/**
- * @route   POST /api/previsionales
- * @desc    Crear un nuevo registro previsional
- * @access  Privado
- */
+// Middleware de validación base
+const previsionalValidationRules = [
+  body('employee_id').notEmpty().withMessage('El ID del empleado es obligatorio').isNumeric(),
+  body('cost_center_id').notEmpty().withMessage('El ID del centro de costos es obligatorio').isNumeric(),
+  body('type').notEmpty().isIn(['afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual']).withMessage('Tipo no válido'),
+  body('amount').notEmpty().isDecimal({ decimal_digits: '2' }).withMessage('El monto debe ser un número decimal'),
+  body('date').notEmpty().isISO8601().toDate().withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
+  body('status').optional().isIn(['pendiente', 'pagado', 'cancelado']).withMessage('Estado no válido'),
+  body('payment_date').optional().isISO8601().toDate().withMessage('Formato de fecha de pago inválido'),
+  body('notes').optional().isString()
+];
+
+// POST /api/previsionales - Crear
 router.post(
   '/api/previsionales',
   authenticate,
-  [
-    body('rut')
-      .notEmpty().withMessage('El RUT es obligatorio')
-      .isLength({ min: 3, max: 20 }).withMessage('El RUT debe tener entre 3 y 20 caracteres'),
-    body('nombre')
-      .notEmpty().withMessage('El nombre es obligatorio')
-      .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres'),
-    body('tipo')
-      .notEmpty().withMessage('El tipo es obligatorio')
-      .isIn(['AFP', 'Isapre', 'Isapre 7%', 'Seguro Cesantía', 'Mutual']).withMessage('Tipo no válido'),
-    body('monto')
-      .notEmpty().withMessage('El monto es obligatorio')
-      .isFloat({ min: 0 }).withMessage('El monto debe ser un número positivo'),
-    body('proyectoId')
-      .optional()
-      .isString().withMessage('ID de proyecto inválido'),
-    body('fecha')
-      .notEmpty().withMessage('La fecha es obligatoria')
-      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('area').optional().isString().withMessage('Área inválida'),
-    body('centroCosto').optional().isString().withMessage('Centro de costo inválido'),
-    body('estado').optional().isString().withMessage('Estado inválido'),
-    body('notas').optional().isString().withMessage('Notas inválidas')
-  ],
+  previsionalValidationRules,
   previsionalController.createPrevisional
 );
 
-/**
- * @route   GET /api/previsionales
- * @desc    Obtener lista de previsionales
- * @access  Privado
- */
+// GET /api/previsionales - Listar
 router.get(
   '/api/previsionales',
   authenticate,
   previsionalController.getPrevisionales
 );
 
-/**
- * @route   GET /api/previsionales/:id
- * @desc    Obtener un previsional por ID
- * @access  Privado
- */
+// GET /api/previsionales/:id - Obtener por ID
 router.get(
   '/api/previsionales/:id',
   authenticate,
+  [param('id').isNumeric().withMessage('El ID debe ser un número')],
   previsionalController.getPrevisionalById
 );
 
-/**
- * @route   PUT /api/previsionales/:id
- * @desc    Actualizar un previsional
- * @access  Privado
- */
+// PUT /api/previsionales/:id - Actualizar
 router.put(
   '/api/previsionales/:id',
   authenticate,
   [
-    body('rut').optional()
-      .isLength({ min: 3, max: 20 }).withMessage('El RUT debe tener entre 3 y 20 caracteres'),
-    body('nombre').optional()
-      .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres'),
-    body('tipo').optional()
-      .isIn(['AFP', 'Isapre', 'Isapre 7%', 'Seguro Cesantía', 'Mutual']).withMessage('Tipo no válido'),
-    body('monto').optional()
-      .isFloat({ min: 0 }).withMessage('El monto debe ser un número positivo'),
-    body('proyectoId').optional()
-      .isString().withMessage('ID de proyecto inválido'),
-    body('fecha').optional()
-      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('area').optional().isString().withMessage('Área inválida'),
-    body('centroCosto').optional().isString().withMessage('Centro de costo inválido'),
-    body('estado').optional().isString().withMessage('Estado inválido'),
-    body('notas').optional().isString().withMessage('Notas inválidas')
+    param('id').isNumeric().withMessage('El ID debe ser un número'),
+    // Validaciones opcionales para la actualización
+    body('employee_id').optional().isNumeric(),
+    body('cost_center_id').optional().isNumeric(),
+    body('type').optional().isIn(['afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual']),
+    body('amount').optional().isDecimal({ decimal_digits: '2' }),
+    body('date').optional().isISO8601().toDate(),
+    body('status').optional().isIn(['pendiente', 'pagado', 'cancelado']),
+    body('payment_date').optional().isISO8601().toDate(),
+    body('notes').optional().isString()
   ],
   previsionalController.updatePrevisional
 );
 
-/**
- * @route   DELETE /api/previsionales/:id
- * @desc    Eliminar un previsional
- * @access  Privado
- */
+// DELETE /api/previsionales/:id - Eliminar
 router.delete(
   '/api/previsionales/:id',
   authenticate,
+  [param('id').isNumeric().withMessage('El ID debe ser un número')],
   previsionalController.deletePrevisional
 );
 
-/**
- * @route   PATCH /api/previsionales/:id/state
- * @desc    Actualizar el estado de un previsional
- * @access  Privado
- */
+// PATCH /api/previsionales/:id/status - Actualizar estado
 router.patch(
-  '/api/previsionales/:id/state',
+  '/api/previsionales/:id/status',
   authenticate,
   [
-    body('state')
+    param('id').isNumeric().withMessage('El ID debe ser un número'),
+    body('status')
       .notEmpty().withMessage('El estado es obligatorio')
-      .isString().withMessage('Estado inválido')
+      .isIn(['pendiente', 'pagado', 'cancelado']).withMessage('Estado no válido')
   ],
-  previsionalController.updatePrevisionalState
+  previsionalController.updatePrevisionalStatus
+);
+
+// POST /api/previsionales/import - Importación masiva
+router.post(
+  '/api/previsionales/import',
+  authenticate,
+  [
+    body('previsionales')
+      .isArray({ min: 1 }).withMessage('Se requiere un array de previsionales con al menos un elemento'),
+    body('previsionales.*.rut')
+      .notEmpty().withMessage('El RUT es obligatorio'),
+    body('previsionales.*.nombre')
+      .notEmpty().withMessage('El nombre es obligatorio'),
+    body('previsionales.*.tipo_previsional')
+      .isIn(['afp', 'isapre', 'isapre_7', 'fonasa', 'seguro_cesantia', 'mutual'])
+      .withMessage('Tipo previsional no válido'),
+    body('previsionales.*.centro_costo')
+      .notEmpty().withMessage('El centro de costo es obligatorio'),
+    body('previsionales.*.monto')
+      .isNumeric().withMessage('El monto debe ser numérico'),
+    body('previsionales.*.mes')
+      .isInt({ min: 1, max: 12 }).withMessage('El mes debe ser entre 1 y 12'),
+    body('previsionales.*.año')
+      .isInt({ min: 2020, max: 2030 }).withMessage('El año debe ser válido'),
+    body('previsionales.*.fecha_pago')
+      .optional().isISO8601().withMessage('Formato de fecha de pago inválido'),
+    body('previsionales.*.notas')
+      .optional().isString()
+  ],
+  previsionalController.importPrevisionales
 );
 
 export default router;

@@ -1,1 +1,0 @@
-import { pool } from './src/config/database.mjs'; async function showTableSchema() { try { const [rows] = await pool.query('DESCRIBE factoring'); console.table(rows); process.exit(0); } catch (err) { console.error(err); process.exit(1); } } showTableSchema();

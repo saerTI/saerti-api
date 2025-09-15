@@ -2256,16 +2256,13 @@ async function createSocialSecurityTable() {
       CREATE TABLE IF NOT EXISTS previsionales (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         employee_id BIGINT UNSIGNED NOT NULL,
-        employee_name VARCHAR(100) NOT NULL,
-        employee_tax_id VARCHAR(20) NOT NULL COMMENT 'Employee RUT or Tax ID',
         cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Associated cost center',
         type ENUM('afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual') NOT NULL,
         amount DECIMAL(15,2) NOT NULL,
         date DATE NOT NULL,
-        period VARCHAR(7) NOT NULL COMMENT 'YYYY-MM format',
+        month_period INT(2) NOT NULL COMMENT 'Month of the period (1-12)',
+        year_period INT(4) NOT NULL COMMENT 'Year of the period (e.g., 2024)',
         status ENUM('pendiente', 'pagado', 'cancelado') DEFAULT 'pendiente',
-        area VARCHAR(100),
-        legal_deductions DECIMAL(15,2),
         payment_date DATE,
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -2273,10 +2270,10 @@ async function createSocialSecurityTable() {
         
         -- Foreign Keys
         FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE CASCADE,
+        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         
         -- Indexes
-        INDEX idx_employee_tax_id (employee_tax_id),
-        INDEX idx_period (period),
+        INDEX idx_period (month_period, year_period),
         INDEX idx_date (date),
         INDEX idx_cost_center (cost_center_id),
         INDEX idx_status (status),
@@ -3010,6 +3007,7 @@ async function setup() {
     // ==========================================
     console.log('\n🏗️ Step 5: Creating human resources tables...');
     
+    await createEmployeesTable();
     await createSocialSecurityTable();
     await createPayrollTable();
     
