@@ -1,6 +1,18 @@
 import { pool } from '../../config/database.mjs';
 
 /**
+ * Normaliza una fecha para el formato DATE de MySQL (YYYY-MM-DD)
+ */
+function normalizeDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString().split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const parsed = new Date(d);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+  return null;
+}
+
+/**
  * Mapea estados de inglés a español para la base de datos
  */
 function mapStatusToSpanish(status) {
@@ -40,24 +52,22 @@ function mapPaymentMethodToSpanish(method) {
 }
 
 /**
- * Función auxiliar para obtener el ID del centro de costo por código
+ * Mapea tipos de remuneración a valores válidos para la base de datos
  */
-async function getCostCenterIdByCode(code) {
-  try {
-    if (!code || code.trim() === '') {
-      return null;
-    }
-    
-    const [rows] = await pool.query(
-      'SELECT id FROM cost_centers WHERE code = ? LIMIT 1',
-      [code.trim()]
-    );
-    
-    return rows.length > 0 ? rows[0].id : null;
-  } catch (error) {
-    console.error(`Error al buscar centro de costo con código ${code}:`, error);
-    return null;
-  }
+function mapTypeToDatabase(type) {
+  const typeMap = {
+    'sueldo': 'remuneracion',
+    'remuneracion': 'remuneracion',
+    'anticipo': 'anticipo',
+    'bono': 'remuneracion',
+    'comision': 'remuneracion',
+    'horas_extra': 'remuneracion',
+    'REMUNERACION': 'remuneracion',
+    'ANTICIPO': 'anticipo',
+    'SUELDO': 'remuneracion'
+  };
+  
+  return typeMap[type?.toLowerCase()] || 'remuneracion';
 }
 
 /**
@@ -72,24 +82,23 @@ async function getAll(filters = {}, pagination = {}) {
     let query = `
       SELECT 
         p.*,
-        p.employee_tax_id as employee_rut,
-        p.net_salary as sueldo_liquido,
-        p.advance_payment as anticipo,
-        cc.code as center_code, 
-        cc.name as center_name,
-        cc.code as project_code,
-        cc.name as project_name
+        CONCAT(p.month_period, '/', p.year_period) as period,
+        e.full_name as employee_name,
+        e.tax_id as employee_rut,
+        e.position as employee_position,
+        cc.id as cost_center_id,
+        cc.name as cost_center_name,
+        cc.code as cost_center_code
       FROM payroll p 
-      LEFT JOIN cost_centers cc ON p.cost_center_id = cc.id 
+      LEFT JOIN employees e ON p.employee_id = e.id
+      LEFT JOIN cost_centers cc ON e.default_cost_center_id = cc.id
       WHERE 1=1
     `;
     let queryParams = [];
     
-    // ... (mantener todos los filtros igual) ...
-    
-    // Filtro de búsqueda por nombre
+    // Filtro de búsqueda por nombre de empleado
     if (filters.search && filters.search.trim()) {
-      query += ' AND p.employee_name LIKE ?';
+      query += ' AND e.full_name LIKE ?';
       queryParams.push(`%${filters.search.trim()}%`);
     }
     
@@ -98,42 +107,50 @@ async function getAll(filters = {}, pagination = {}) {
       queryParams.push(filters.state);
     }
     
-    if (filters.projectId || filters.costCenterId || filters.centroCostoId) {
-      query += ' AND p.cost_center_id = ?';
-      queryParams.push(filters.projectId || filters.costCenterId || filters.centroCostoId);
+    if (filters.employeeId) {
+      query += ' AND p.employee_id = ?';
+      queryParams.push(filters.employeeId);
     }
     
+    // Filtro por período usando month_period y year_period
+    if (filters.month) {
+      query += ' AND p.month_period = ?';
+      queryParams.push(filters.month);
+    }
+    
+    if (filters.year) {
+      query += ' AND p.year_period = ?';
+      queryParams.push(filters.year);
+    }
+    
+    // Soporte para el filtro period legacy (formato MM/YYYY)
     if (filters.period) {
-      query += ' AND p.period = ?';
-      queryParams.push(filters.period);
-    }
-    
-    if (filters.area) {
-      query += ' AND p.area LIKE ?';
-      queryParams.push(`%${filters.area}%`);
+      const [month, year] = filters.period.split('/');
+      if (month && year) {
+        query += ' AND p.month_period = ? AND p.year_period = ?';
+        queryParams.push(parseInt(month), parseInt(year));
+      }
     }
     
     if (filters.rut) {
-      query += ' AND p.employee_tax_id LIKE ?';
+      query += ' AND e.tax_id LIKE ?';
       queryParams.push(`%${filters.rut.replace(/[.-]/g, '')}%`);
     }
     
     if (filters.type) {
-      const mappedType = filters.type === 'REMUNERACION' ? 'remuneracion' : 
-                        filters.type === 'ANTICIPO' ? 'anticipo' : 
-                        filters.type?.toLowerCase();
+      const mappedType = mapTypeToDatabase(filters.type);
       query += ' AND p.type = ?';
       queryParams.push(mappedType);
     }
     
     // Query para contar el total
     const countQuery = query.replace(
-      'SELECT p.*, p.employee_tax_id as employee_rut, p.net_salary as sueldo_liquido, p.advance_payment as anticipo, cc.code as center_code, cc.name as center_name, cc.code as project_code, cc.name as project_name', 
+      'SELECT p.*, CONCAT(p.month_period, \'/\', p.year_period) as period, e.full_name as employee_name, e.tax_id as employee_rut, e.position as employee_position, cc.id as cost_center_id, cc.name as cost_center_name, cc.code as cost_center_code', 
       'SELECT COUNT(*) as total'
     );
     
     // Agregar ordenamiento
-    query += ' ORDER BY p.created_at DESC, p.employee_name ASC';
+    query += ' ORDER BY p.created_at DESC, e.full_name ASC';
     
     // 🔥 SOLO AGREGAR LIMIT/OFFSET SI SE ESPECIFICA LIMIT
     const finalQueryParams = [...queryParams];
@@ -184,22 +201,23 @@ async function getAll(filters = {}, pagination = {}) {
 }
 
 /**
- * Obtiene una remuneración por ID con información del centro de costo
+ * Obtiene una remuneración por ID con información del empleado
  */
 async function getById(id) {
   try {
     const [rows] = await pool.query(`
       SELECT 
         p.*,
-        p.employee_tax_id as employee_rut,
-        p.net_salary as sueldo_liquido,
-        p.advance_payment as anticipo,
-        cc.code as center_code, 
-        cc.name as center_name,
-        cc.code as project_code,
-        cc.name as project_name
+        CONCAT(p.month_period, '/', p.year_period) as period,
+        e.full_name as employee_name,
+        e.tax_id as employee_rut,
+        e.position as employee_position,
+        cc.id as cost_center_id,
+        cc.name as cost_center_name,
+        cc.code as cost_center_code
       FROM payroll p 
-      LEFT JOIN cost_centers cc ON p.cost_center_id = cc.id 
+      LEFT JOIN employees e ON p.employee_id = e.id
+      LEFT JOIN cost_centers cc ON e.default_cost_center_id = cc.id
       WHERE p.id = ?
     `, [id]);
     return rows[0] || null;
@@ -214,54 +232,57 @@ async function getById(id) {
  */
 async function create(remuneracionData) {
   try {
-    // Mapear código de centro de costo a ID si se proporciona
-    let costCenterId = remuneracionData.cost_center_id;
+    // Extraer month_period y year_period del período
+    let monthPeriod, yearPeriod;
     
-    // Si no se proporciona ID pero sí código, buscar el ID
-    if (!costCenterId && remuneracionData.centro_costo_code) {
-      costCenterId = await getCostCenterIdByCode(remuneracionData.centro_costo_code);
-      if (!costCenterId) {
-        console.warn(`⚠️ Centro de costo no encontrado para código: ${remuneracionData.centro_costo_code}`);
-        // Usar un centro de costo por defecto (ej: Oficina Central)
-        costCenterId = await getCostCenterIdByCode('001-0');
-      }
+    if (remuneracionData.period) {
+      const [month, year] = remuneracionData.period.split('/');
+      monthPeriod = parseInt(month);
+      yearPeriod = parseInt(year);
+    } else {
+      monthPeriod = remuneracionData.month_period || new Date().getMonth() + 1;
+      yearPeriod = remuneracionData.year_period || new Date().getFullYear();
     }
     
-    // Mapear tipo: REMUNERACION -> remuneracion, ANTICIPO -> anticipo
-    const mappedType = remuneracionData.type === 'REMUNERACION' ? 'remuneracion' : 
-                      remuneracionData.type === 'ANTICIPO' ? 'anticipo' : 
-                      remuneracionData.type?.toLowerCase();
+    // Mapear tipo usando la nueva función
+    const mappedType = mapTypeToDatabase(remuneracionData.type || 'sueldo');
     
     // Mapear estado: pending -> pendiente, etc.
     const mappedStatus = mapStatusToSpanish(remuneracionData.state || 'pending');
     
+    // Normalizar fechas para formato DATE de MySQL
+    const normalizedDate = normalizeDate(remuneracionData.date);
+    const normalizedPaymentDate = normalizeDate(remuneracionData.payment_date);
+    
     const [result] = await pool.query(
       `INSERT INTO payroll (
-        employee_id, employee_name, employee_tax_id, employee_position,
-        cost_center_id, type, amount, net_salary, advance_payment, 
-        date, period, work_days, payment_method, status, area, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        employee_id, type, amount, net_salary, advance_payment, 
+        date, month_period, year_period, work_days, payment_method, 
+        status, payment_date, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        remuneracionData.employee_id || 0,
-        remuneracionData.employee_name,
-        remuneracionData.employee_rut, // employee_tax_id
-        remuneracionData.employee_position,
-        costCenterId,
+        remuneracionData.employee_id,
         mappedType,
         remuneracionData.amount,
-        remuneracionData.sueldo_liquido, // net_salary
-        remuneracionData.anticipo, // advance_payment
-        remuneracionData.date,
-        remuneracionData.period,
+        remuneracionData.net_salary || remuneracionData.sueldo_liquido,
+        remuneracionData.advance_payment || remuneracionData.anticipo,
+        normalizedDate,
+        monthPeriod,
+        yearPeriod,
         remuneracionData.work_days || 30,
         mapPaymentMethodToSpanish(remuneracionData.payment_method || 'transferencia'),
-        mappedStatus, // status
-        remuneracionData.area,
+        mappedStatus,
+        normalizedPaymentDate,
         remuneracionData.notes
       ]
     );
     
-    return { id: result.insertId, ...remuneracionData, cost_center_id: costCenterId };
+    return { 
+      id: result.insertId, 
+      ...remuneracionData, 
+      month_period: monthPeriod,
+      year_period: yearPeriod 
+    };
   } catch (error) {
     console.error('Error al crear remuneración:', error);
     throw error;
@@ -273,16 +294,16 @@ async function create(remuneracionData) {
  */
 async function update(id, remuneracionData) {
   try {
-    // Mapear código de centro de costo a ID si se proporciona
-    let costCenterId = remuneracionData.cost_center_id;
+    // Extraer month_period y year_period del período
+    let monthPeriod, yearPeriod;
     
-    if (!costCenterId && remuneracionData.centro_costo_code) {
-      costCenterId = await getCostCenterIdByCode(remuneracionData.centro_costo_code);
-    }
-    
-    // Validar que cost_center_id no sea null (requerido por la base de datos)
-    if (!costCenterId) {
-      throw new Error('Se requiere un cost_center_id válido para actualizar la remuneración');
+    if (remuneracionData.period) {
+      const [month, year] = remuneracionData.period.split('/');
+      monthPeriod = parseInt(month);
+      yearPeriod = parseInt(year);
+    } else {
+      monthPeriod = remuneracionData.month_period;
+      yearPeriod = remuneracionData.year_period;
     }
     
     // Mapear tipo si es necesario
@@ -298,30 +319,30 @@ async function update(id, remuneracionData) {
     // Mapear estado si es necesario
     const mappedStatus = mapStatusToSpanish(remuneracionData.state || 'pending');
     
+    // Normalizar fechas para formato DATE de MySQL
+    const normalizedDate = normalizeDate(remuneracionData.date);
+    const normalizedPaymentDate = normalizeDate(remuneracionData.payment_date);
+    
     const [result] = await pool.query(
       `UPDATE payroll SET 
-        employee_name = ?, employee_tax_id = ?, employee_position = ?,
-        cost_center_id = ?, type = ?, amount = ?, net_salary = ?, 
-        advance_payment = ?, date = ?, period = ?, work_days = ?, 
-        payment_method = ?, status = ?, area = ?, payment_date = ?, 
+        employee_id = ?, type = ?, amount = ?, net_salary = ?, 
+        advance_payment = ?, date = ?, month_period = ?, year_period = ?, 
+        work_days = ?, payment_method = ?, status = ?, payment_date = ?, 
         notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?`,
       [
-        remuneracionData.employee_name,
-        remuneracionData.employee_rut, // employee_tax_id
-        remuneracionData.employee_position,
-        costCenterId,
+        remuneracionData.employee_id,
         mappedType,
         remuneracionData.amount,
-        remuneracionData.sueldo_liquido, // net_salary
-        remuneracionData.anticipo, // advance_payment
-        remuneracionData.date,
-        remuneracionData.period,
+        remuneracionData.net_salary || remuneracionData.sueldo_liquido,
+        remuneracionData.advance_payment || remuneracionData.anticipo,
+        normalizedDate,
+        monthPeriod,
+        yearPeriod,
         remuneracionData.work_days,
         mapPaymentMethodToSpanish(remuneracionData.payment_method || 'transferencia'),
-        mappedStatus, // status
-        remuneracionData.area,
-        remuneracionData.payment_date,
+        mappedStatus,
+        normalizedPaymentDate,
         remuneracionData.notes,
         id
       ]
@@ -331,7 +352,12 @@ async function update(id, remuneracionData) {
       return null;
     }
     
-    return { id, ...remuneracionData, cost_center_id: costCenterId };
+    return { 
+      id, 
+      ...remuneracionData, 
+      month_period: monthPeriod,
+      year_period: yearPeriod 
+    };
   } catch (error) {
     console.error('Error al actualizar remuneración:', error);
     throw error;
@@ -367,7 +393,8 @@ async function getStats(filters = {}) {
         SUM(CASE WHEN status = 'pagado' THEN 1 ELSE 0 END) as paid,
         SUM(CASE WHEN type = 'remuneracion' THEN amount ELSE 0 END) as total_remuneraciones,
         SUM(CASE WHEN type = 'anticipo' THEN amount ELSE 0 END) as total_anticipos
-      FROM payroll 
+      FROM payroll p
+      LEFT JOIN employees e ON p.employee_id = e.id
       WHERE 1=1
     `;
     
@@ -375,24 +402,76 @@ async function getStats(filters = {}) {
     
     // Aplicar mismos filtros que en getAll (excepto paginación)
     if (filters.search && filters.search.trim()) {
-      query += ' AND employee_name LIKE ?';
+      query += ' AND e.full_name LIKE ?';
       queryParams.push(`%${filters.search.trim()}%`);
     }
     
     if (filters.state) {
-      query += ' AND status = ?';
+      query += ' AND p.status = ?';
       queryParams.push(filters.state);
     }
     
+    if (filters.month) {
+      query += ' AND p.month_period = ?';
+      queryParams.push(filters.month);
+    }
+    
+    if (filters.year) {
+      query += ' AND p.year_period = ?';
+      queryParams.push(filters.year);
+    }
+    
+    // Soporte para filtro period legacy
     if (filters.period) {
-      query += ' AND period = ?';
-      queryParams.push(filters.period);
+      const [month, year] = filters.period.split('/');
+      if (month && year) {
+        query += ' AND p.month_period = ? AND p.year_period = ?';
+        queryParams.push(parseInt(month), parseInt(year));
+      }
     }
     
     const [rows] = await pool.query(query, queryParams);
     return rows[0];
   } catch (error) {
     console.error('Error al obtener estadísticas:', error);
+    throw error;
+  }
+}
+
+/**
+ * Busca un empleado por RUT
+ * @param {string} rut - RUT del empleado
+ * @returns {Promise<Object|null>} Datos del empleado o null si no existe
+ */
+async function findEmployeeByRut(rut) {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, full_name, tax_id FROM employees WHERE tax_id = ?',
+      [rut]
+    );
+    
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error('Error en findEmployeeByRut:', error.message);
+    throw error;
+  }
+}
+
+/**
+ * Busca un centro de costo por nombre
+ * @param {string} name - Nombre del centro de costo
+ * @returns {Promise<Object|null>} Datos del centro de costo o null si no existe
+ */
+async function findCostCenterByName(name) {
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, name FROM cost_centers WHERE name = ? OR UPPER(name) = UPPER(?)',
+      [name, name]
+    );
+    
+    return rows.length > 0 ? rows[0] : null;
+  } catch (error) {
+    console.error('Error en findCostCenterByName:', error.message);
     throw error;
   }
 }
@@ -404,5 +483,7 @@ export {
   update,
   deleteRemuneracion as delete,
   getStats,
-  getCostCenterIdByCode
+  findEmployeeByRut,
+  findCostCenterByName,
+  mapTypeToDatabase
 };

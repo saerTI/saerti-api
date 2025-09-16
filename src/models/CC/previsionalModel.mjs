@@ -1,6 +1,18 @@
 import { pool } from "../../config/database.mjs";
 
 /**
+ * Normaliza una fecha para el formato DATE de MySQL (YYYY-MM-DD)
+ */
+function normalizeDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString().split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const parsed = new Date(d);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+  return null;
+}
+
+/**
  * Modelo para gestionar previsionales (AFP, Isapre, etc.)
  */
 export default {
@@ -13,6 +25,10 @@ export default {
     try {
       const connection = await pool.getConnection();
       try {
+        // Normalizar fechas para formato DATE de MySQL
+        const normalizedDate = normalizeDate(previsionalData.date);
+        const normalizedPaymentDate = normalizeDate(previsionalData.payment_date);
+        
         const [result] = await connection.query(
           `INSERT INTO previsionales 
            (employee_id, cost_center_id, type, amount, date, month_period, year_period, status, payment_date, notes) 
@@ -22,11 +38,11 @@ export default {
             previsionalData.cost_center_id,
             previsionalData.type,
             previsionalData.amount,
-            previsionalData.date,
+            normalizedDate,
             previsionalData.month_period,
             previsionalData.year_period,
             previsionalData.status || 'pendiente',
-            previsionalData.payment_date || null,
+            normalizedPaymentDate,
             previsionalData.notes || null
           ]
         );
@@ -85,16 +101,28 @@ export default {
         const values = [];
         
         const updateableFields = [
-          'employee_id', 'cost_center_id', 'type', 'amount', 'date', 'month_period', 
-          'year_period', 'status', 'payment_date', 'notes'
+          'employee_id', 'cost_center_id', 'type', 'amount', 'month_period', 
+          'year_period', 'status', 'notes'
         ];
         
+        // Handle regular fields
         updateableFields.forEach(field => {
           if (previsionalData[field] !== undefined) {
             fields.push(`${field} = ?`);
             values.push(previsionalData[field]);
           }
         });
+        
+        // Handle date fields with normalization
+        if (previsionalData.date !== undefined) {
+          fields.push('date = ?');
+          values.push(normalizeDate(previsionalData.date));
+        }
+        
+        if (previsionalData.payment_date !== undefined) {
+          fields.push('payment_date = ?');
+          values.push(normalizeDate(previsionalData.payment_date));
+        }
         
         if (fields.length === 0) {
           return false;

@@ -2300,37 +2300,31 @@ async function createPayrollTable() {
       CREATE TABLE IF NOT EXISTS payroll (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         employee_id BIGINT UNSIGNED NOT NULL,
-        employee_name VARCHAR(100) NOT NULL,
-        employee_tax_id VARCHAR(20) NOT NULL COMMENT 'Employee RUT or Tax ID',
-        employee_position VARCHAR(100),
-        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Associated cost center',
         type ENUM('remuneracion', 'anticipo') NOT NULL,
         amount DECIMAL(15,2) NOT NULL,
         net_salary DECIMAL(15,2) COMMENT 'Net salary after deductions',
         advance_payment DECIMAL(15,2) COMMENT 'Advance payment',
         date DATE NOT NULL,
-        period VARCHAR(7) NOT NULL COMMENT 'YYYY-MM format',
+        month_period INT(2) NOT NULL COMMENT 'Month of the period (1-12)',
+        year_period INT(4) NOT NULL COMMENT 'Year of the period (e.g., 2024)',
         work_days INT DEFAULT 30,
         payment_method ENUM('transferencia', 'cheque', 'efectivo') DEFAULT 'transferencia',
         status ENUM('pendiente', 'aprobado', 'pagado', 'rechazado', 'cancelado') DEFAULT 'pendiente',
-        area VARCHAR(100),
         payment_date DATE,
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         
         -- Foreign Keys
-        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE CASCADE,
-        
+        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         -- Indexes
-        INDEX idx_employee_tax_id (employee_tax_id),
-        INDEX idx_period (period),
+        INDEX idx_employee (employee_id),
+        INDEX idx_period (month_period, year_period),
         INDEX idx_date (date),
-        INDEX idx_cost_center (cost_center_id),
         INDEX idx_status (status)
       )
     `);
-    console.log('✅ Payroll table created (→ cost_centers)');
+    console.log('✅ Payroll table created (→ employees)');
   } catch (error) {
     console.error('❌ Error creating payroll table:', error);
     throw error;
