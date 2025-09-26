@@ -8,7 +8,6 @@ const router = Router();
 // Middleware de validación base
 const previsionalValidationRules = [
   body('employee_id').notEmpty().withMessage('El ID del empleado es obligatorio').isNumeric(),
-  body('cost_center_id').notEmpty().withMessage('El ID del centro de costos es obligatorio').isNumeric(),
   body('type').notEmpty().isIn(['afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual']).withMessage('Tipo no válido'),
   body('amount').notEmpty().isDecimal({ decimal_digits: '2' }).withMessage('El monto debe ser un número decimal'),
   body('date').notEmpty().isISO8601().toDate().withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
@@ -48,7 +47,6 @@ router.put(
     param('id').isNumeric().withMessage('El ID debe ser un número'),
     // Validaciones opcionales para la actualización
     body('employee_id').optional().isNumeric(),
-    body('cost_center_id').optional().isNumeric(),
     body('type').optional().isIn(['afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual']),
     body('amount').optional().isDecimal({ decimal_digits: '2' }),
     body('date').optional().isISO8601().toDate(),
@@ -94,8 +92,6 @@ router.post(
     body('previsionales.*.tipo_previsional')
       .isIn(['afp', 'isapre', 'isapre_7', 'fonasa', 'seguro_cesantia', 'mutual'])
       .withMessage('Tipo previsional no válido'),
-    body('previsionales.*.centro_costo')
-      .notEmpty().withMessage('El centro de costo es obligatorio'),
     body('previsionales.*.monto')
       .isNumeric().withMessage('El monto debe ser numérico'),
     body('previsionales.*.mes')

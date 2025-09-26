@@ -13,7 +13,7 @@ export default {
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { employee_id, cost_center_id, type, amount, date, status, payment_date, notes } = req.body;
+      const { employee_id, type, amount, date, status, payment_date, notes } = req.body;
 
       const dateObj = new Date(date);
       const month_period = dateObj.getMonth() + 1; // getMonth() devuelve 0-11
@@ -21,7 +21,6 @@ export default {
 
       const previsionalData = {
         employee_id,
-        cost_center_id,
         type,
         amount,
         date,
@@ -49,20 +48,19 @@ export default {
    */
   async getPrevisionales(req, res, next) {
     try {
-      const { 
-        page = 1, 
+      const {
+        page = 1,
         limit = 20,
         status, // Cambiado de state
         type,   // Cambiado de category
-        cost_center_id,
         month_period,
         year_period,
         start_date,
         end_date,
         search
       } = req.query;
-      
-      const filters = { status, type, cost_center_id, month_period, year_period, start_date, end_date, search };
+
+      const filters = { status, type, month_period, year_period, start_date, end_date, search };
       
       // Limpiar filtros nulos o indefinidos
       Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
@@ -212,7 +210,7 @@ export default {
         try {
           // 1. Validar datos básicos del item
           if (!prevItem.rut || !prevItem.nombre || !prevItem.tipo_previsional ||
-              !prevItem.centro_costo || !prevItem.monto || !prevItem.mes || !prevItem.año) {
+              !prevItem.monto || !prevItem.mes || !prevItem.año) {
             throw new Error('Datos requeridos faltantes en la fila.');
           }
 
@@ -233,16 +231,9 @@ export default {
             console.log(`Empleado creado con ID: ${newEmployeeId}`);
           }
 
-          // 3. Buscar centro de costo por nombre
-          const costCenter = await previsionalModel.findCostCenterByName(prevItem.centro_costo);
-          if (!costCenter) {
-            throw new Error(`Centro de costo '${prevItem.centro_costo}' no encontrado.`);
-          }
-
-          // 4. Crear el registro previsional
+          // 3. Crear el registro previsional
           const previsionalData = {
             employee_id: employee.id,
-            cost_center_id: costCenter.id,
             type: prevItem.tipo_previsional,
             amount: prevItem.monto,
             date: prevItem.fecha_pago || `${prevItem.año}-${String(prevItem.mes).padStart(2, '0')}-01`,

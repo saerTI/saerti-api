@@ -3,6 +3,25 @@
 import { pool } from '../../config/database.mjs';
 
 /**
+ * Helper function to format dates for MySQL
+ * Converts ISO 8601 dates to MySQL DATETIME format
+ */
+function formatDateForMySQL(dateString) {
+  if (!dateString) return null;
+  
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return null;
+    
+    // Format as YYYY-MM-DD HH:MM:SS
+    return date.toISOString().slice(0, 19).replace('T', ' ');
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return null;
+  }
+}
+
+/**
  * Helper function to get cost center ID by code
  */
 async function getCostCenterIdByCode(code) {
@@ -269,9 +288,9 @@ async function create(fixedCostData) {
       quota_value: parseFloat(fixedCostData.quota_value),
       quota_count: parseInt(fixedCostData.quota_count),
       paid_quotas: parseInt(fixedCostData.paid_quotas) || 0,
-      start_date: fixedCostData.start_date,
-      end_date: endDate,
-      payment_date: fixedCostData.payment_date || fixedCostData.start_date,
+      start_date: formatDateForMySQL(fixedCostData.start_date),
+      end_date: formatDateForMySQL(endDate),
+      payment_date: formatDateForMySQL(fixedCostData.payment_date || fixedCostData.start_date),
       next_payment_date: nextPaymentDate,
       cost_center_id: costCenterId,
       account_category_id: accountCategoryId,
@@ -351,9 +370,9 @@ async function update(id, fixedCostData) {
       quota_value: fixedCostData.quota_value !== undefined ? parseFloat(fixedCostData.quota_value) : current.quota_value,
       quota_count: fixedCostData.quota_count !== undefined ? parseInt(fixedCostData.quota_count) : current.quota_count,
       paid_quotas: fixedCostData.paid_quotas !== undefined ? parseInt(fixedCostData.paid_quotas) : current.paid_quotas,
-      start_date: fixedCostData.start_date || current.start_date,
-      end_date: fixedCostData.end_date || current.end_date,
-      payment_date: fixedCostData.payment_date || current.payment_date,
+      start_date: formatDateForMySQL(fixedCostData.start_date) || current.start_date,
+      end_date: formatDateForMySQL(fixedCostData.end_date) || current.end_date,
+      payment_date: formatDateForMySQL(fixedCostData.payment_date) || current.payment_date,
       next_payment_date: nextPaymentDate,
       cost_center_id: costCenterId,
       account_category_id: accountCategoryId,

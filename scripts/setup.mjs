@@ -1442,8 +1442,6 @@ async function insertDefaultIncomeCategories() {
       'Estados de Pago',
       'Venta de Activos',
       'Devoluciones',
-      'Subsidios',
-      'Retorno de Inversiones',
       'Otros Ingresos'
     ];
 
@@ -2256,7 +2254,6 @@ async function createSocialSecurityTable() {
       CREATE TABLE IF NOT EXISTS previsionales (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         employee_id BIGINT UNSIGNED NOT NULL,
-        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Associated cost center',
         type ENUM('afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual') NOT NULL,
         amount DECIMAL(15,2) NOT NULL,
         date DATE NOT NULL,
@@ -2269,18 +2266,16 @@ async function createSocialSecurityTable() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         
         -- Foreign Keys
-        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE CASCADE,
         FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         
         -- Indexes
         INDEX idx_period (month_period, year_period),
         INDEX idx_date (date),
-        INDEX idx_cost_center (cost_center_id),
         INDEX idx_status (status),
         INDEX idx_type (type)
       )
     `);
-    console.log('✅ previsionales table created (→ cost_centers)');
+    console.log('✅ previsionales table created');
   } catch (error) {
     console.error('❌ Error creating previsionales table:', error);
     throw error;
@@ -3103,7 +3098,6 @@ async function showSchemaStatus() {
     console.log('   ✅ invoices.cost_center_id → cost_centers.id');
     console.log('   ✅ accounting_costs.cost_center_id → cost_centers.id');
     console.log('   ✅ accounting_costs.account_category_id → account_categories.id');
-    console.log('   ✅ previsionales.cost_center_id → cost_centers.id');
     console.log('   ✅ payroll.cost_center_id → cost_centers.id');
     console.log('   ✅ incomes.cost_center_id → cost_centers.id');
     console.log('   ✅ factoring.factoring_entities_id → factoring_entities.id');

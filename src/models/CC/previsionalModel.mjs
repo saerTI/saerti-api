@@ -30,12 +30,11 @@ export default {
         const normalizedPaymentDate = normalizeDate(previsionalData.payment_date);
         
         const [result] = await connection.query(
-          `INSERT INTO previsionales 
-           (employee_id, cost_center_id, type, amount, date, month_period, year_period, status, payment_date, notes) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO previsionales
+           (employee_id, type, amount, date, month_period, year_period, status, payment_date, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             previsionalData.employee_id,
-            previsionalData.cost_center_id,
             previsionalData.type,
             previsionalData.amount,
             normalizedDate,
@@ -101,7 +100,7 @@ export default {
         const values = [];
         
         const updateableFields = [
-          'employee_id', 'cost_center_id', 'type', 'amount', 'month_period', 
+          'employee_id', 'type', 'amount', 'month_period',
           'year_period', 'status', 'notes'
         ];
         
@@ -207,10 +206,6 @@ export default {
         queryParams.push(filters.type);
       }
 
-      if (filters.cost_center_id) {
-        whereConditions.push('cost_center_id = ?');
-        queryParams.push(filters.cost_center_id);
-      }
       
       if (filters.month_period) {
         whereConditions.push('month_period = ?');
@@ -239,12 +234,11 @@ export default {
         : '';
       
       const [rows] = await pool.query(
-        `SELECT p.*, e.full_name as employee_name, e.tax_id as employee_rut, cc.name as cost_center_name
+        `SELECT p.*, e.full_name as employee_name, e.tax_id as employee_rut
          FROM previsionales p
          LEFT JOIN employees e ON p.employee_id = e.id
-         LEFT JOIN cost_centers cc ON p.cost_center_id = cc.id
-         ${whereClause} 
-         ORDER BY p.date DESC 
+         ${whereClause}
+         ORDER BY p.date DESC
          LIMIT ? OFFSET ?`,
         [...queryParams, parseInt(limit), parseInt(offset)]
       );
@@ -290,22 +284,4 @@ export default {
     }
   },
 
-  /**
-   * Busca un centro de costo por nombre
-   * @param {string} name - Nombre del centro de costo
-   * @returns {Promise<Object|null>} Datos del centro de costo o null si no existe
-   */
-  async findCostCenterByName(name) {
-    try {
-      const [rows] = await pool.query(
-        'SELECT id, name FROM cost_centers WHERE name = ? OR UPPER(name) = UPPER(?)',
-        [name, name]
-      );
-      
-      return rows.length > 0 ? rows[0] : null;
-    } catch (error) {
-      console.error('Error en findCostCenterByName:', error.message);
-      throw error;
-    }
-  }
 };
