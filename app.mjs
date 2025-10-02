@@ -22,6 +22,7 @@ import incomeRoutes from './src/routes/incomeRoutes.mjs';
 import incomeCategoriesRoutes from './src/routes/incomeCategoriesRoutes.mjs';
 import factoringRoutes from './src/routes/factoringRoutes.mjs';
 import factoringEntityRoutes from './src/routes/factoringEntityRoutes.mjs';
+import accountCategoryRoutes from './src/routes/accountCategoryRoutes.mjs';
 
 import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
 
@@ -72,6 +73,7 @@ app.use(incomeRoutes);
 app.use('/api/income-categories', incomeCategoriesRoutes);
 app.use(factoringRoutes);
 app.use(factoringEntityRoutes);
+app.use('/api/account-categories', accountCategoryRoutes);
 
 app.use(budgetSuggestionsRoutes);
 

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/dante/OneDrive/Desktop/Saer/saer-frontend/src/components/tables/**)",
+      "Read(//c/Users/dante/OneDrive/Desktop/Saer/saer-frontend/src/**)",
+      "Read(//c/Users/dante/OneDrive/Desktop/Saer/saer-frontend/**)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -159,6 +159,190 @@ async function getAccountCategories() {
 	return rows;
 }
 
+// Nuevas funciones para filtrar por cost_center_id y account_category_id
+async function getByCostCenter(costCenterId, filters = {}) {
+	let query = `
+		SELECT poi.*,
+		       cc.name as cost_center_name, cc.code as cost_center_code,
+		       ac.name as account_category_name, ac.code as account_category_code,
+		       po.po_number as purchase_order_number, po.po_date as purchase_order_date
+		FROM purchase_order_items poi
+		LEFT JOIN cost_centers cc ON poi.cost_center_id = cc.id
+		LEFT JOIN account_categories ac ON poi.account_category_id = ac.id
+		LEFT JOIN purchase_orders po ON poi.purchase_order_id = po.id
+		WHERE poi.cost_center_id = ?
+	`;
+
+	let params = [costCenterId];
+
+	// Filtros adicionales
+	if (filters.date_from) {
+		query += ` AND poi.date >= ?`;
+		params.push(filters.date_from);
+	}
+
+	if (filters.date_to) {
+		query += ` AND poi.date <= ?`;
+		params.push(filters.date_to);
+	}
+
+	if (filters.currency) {
+		query += ` AND poi.currency = ?`;
+		params.push(filters.currency);
+	}
+
+	query += ` ORDER BY poi.date DESC, poi.id DESC`;
+
+	const [rows] = await pool.query(query, params);
+	return rows;
+}
+
+async function getByAccountCategory(accountCategoryId, filters = {}) {
+	let query = `
+		SELECT poi.*,
+		       cc.name as cost_center_name, cc.code as cost_center_code,
+		       ac.name as account_category_name, ac.code as account_category_code,
+		       po.po_number as purchase_order_number, po.po_date as purchase_order_date
+		FROM purchase_order_items poi
+		LEFT JOIN cost_centers cc ON poi.cost_center_id = cc.id
+		LEFT JOIN account_categories ac ON poi.account_category_id = ac.id
+		LEFT JOIN purchase_orders po ON poi.purchase_order_id = po.id
+		WHERE poi.account_category_id = ?
+	`;
+
+	let params = [accountCategoryId];
+
+	// Filtros adicionales
+	if (filters.date_from) {
+		query += ` AND poi.date >= ?`;
+		params.push(filters.date_from);
+	}
+
+	if (filters.date_to) {
+		query += ` AND poi.date <= ?`;
+		params.push(filters.date_to);
+	}
+
+	if (filters.currency) {
+		query += ` AND poi.currency = ?`;
+		params.push(filters.currency);
+	}
+
+	query += ` ORDER BY poi.date DESC, poi.id DESC`;
+
+	const [rows] = await pool.query(query, params);
+	return rows;
+}
+
+async function getByCostCenterAndAccountCategory(costCenterId, accountCategoryId, filters = {}) {
+	let query = `
+		SELECT poi.*,
+		       cc.name as cost_center_name, cc.code as cost_center_code,
+		       ac.name as account_category_name, ac.code as account_category_code,
+		       po.po_number as purchase_order_number, po.po_date as purchase_order_date
+		FROM purchase_order_items poi
+		LEFT JOIN cost_centers cc ON poi.cost_center_id = cc.id
+		LEFT JOIN account_categories ac ON poi.account_category_id = ac.id
+		LEFT JOIN purchase_orders po ON poi.purchase_order_id = po.id
+		WHERE poi.cost_center_id = ? AND poi.account_category_id = ?
+	`;
+
+	let params = [costCenterId, accountCategoryId];
+
+	// Filtros adicionales
+	if (filters.date_from) {
+		query += ` AND poi.date >= ?`;
+		params.push(filters.date_from);
+	}
+
+	if (filters.date_to) {
+		query += ` AND poi.date <= ?`;
+		params.push(filters.date_to);
+	}
+
+	if (filters.currency) {
+		query += ` AND poi.currency = ?`;
+		params.push(filters.currency);
+	}
+
+	query += ` ORDER BY poi.date DESC, poi.id DESC`;
+
+	const [rows] = await pool.query(query, params);
+	return rows;
+}
+
+// Función para obtener resúmenes y estadísticas
+async function getSummaryByCostCenter(costCenterId, filters = {}) {
+	let query = `
+		SELECT
+			poi.cost_center_id,
+			cc.name as cost_center_name,
+			cc.code as cost_center_code,
+			COUNT(poi.id) as total_items,
+			SUM(poi.total) as total_amount,
+			AVG(poi.total) as average_amount,
+			MIN(poi.date) as first_date,
+			MAX(poi.date) as last_date,
+			GROUP_CONCAT(DISTINCT poi.currency) as currencies
+		FROM purchase_order_items poi
+		LEFT JOIN cost_centers cc ON poi.cost_center_id = cc.id
+		WHERE poi.cost_center_id = ?
+	`;
+
+	let params = [costCenterId];
+
+	if (filters.date_from) {
+		query += ` AND poi.date >= ?`;
+		params.push(filters.date_from);
+	}
+
+	if (filters.date_to) {
+		query += ` AND poi.date <= ?`;
+		params.push(filters.date_to);
+	}
+
+	query += ` GROUP BY poi.cost_center_id, cc.name, cc.code`;
+
+	const [rows] = await pool.query(query, params);
+	return rows[0] || null;
+}
+
+async function getSummaryByAccountCategory(accountCategoryId, filters = {}) {
+	let query = `
+		SELECT
+			poi.account_category_id,
+			ac.name as account_category_name,
+			ac.code as account_category_code,
+			ac.type as account_category_type,
+			COUNT(poi.id) as total_items,
+			SUM(poi.total) as total_amount,
+			AVG(poi.total) as average_amount,
+			MIN(poi.date) as first_date,
+			MAX(poi.date) as last_date,
+			GROUP_CONCAT(DISTINCT poi.currency) as currencies
+		FROM purchase_order_items poi
+		LEFT JOIN account_categories ac ON poi.account_category_id = ac.id
+		WHERE poi.account_category_id = ?
+	`;
+
+	let params = [accountCategoryId];
+
+	if (filters.date_from) {
+		query += ` AND poi.date >= ?`;
+		params.push(filters.date_from);
+	}
+
+	if (filters.date_to) {
+		query += ` AND poi.date <= ?`;
+		params.push(filters.date_to);
+	}
+
+	query += ` GROUP BY poi.account_category_id, ac.name, ac.code, ac.type`;
+
+	const [rows] = await pool.query(query, params);
+	return rows[0] || null;
+}
+
 export {
 	listByPurchaseOrder,
 	getById,
@@ -169,5 +353,10 @@ export {
 	removeByPurchaseOrder,
 	getTotalsByPurchaseOrder,
 	getCostCenters,
-	getAccountCategories
+	getAccountCategories,
+	getByCostCenter,
+	getByAccountCategory,
+	getByCostCenterAndAccountCategory,
+	getSummaryByCostCenter,
+	getSummaryByAccountCategory
 };
