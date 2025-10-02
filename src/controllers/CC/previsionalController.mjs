@@ -1,52 +1,42 @@
 import { validationResult } from 'express-validator';
-import { AppError } from '../../middleware/errorHandler.mjs';
 import previsionalModel from '../../models/CC/previsionalModel.mjs';
+import { empleadosModel } from '../../models/CC/empleadosModel.mjs';
 
-/**
- * Controlador para gestión de pagos previsionales
- */
 export default {
   /**
    * Crea un nuevo registro previsional
-   * @param {Object} req - Objeto de solicitud Express
-   * @param {Object} res - Objeto de respuesta Express
-   * @param {Function} next - Función next de Express
-   * @returns {Promise<void>}
    */
   async createPrevisional(req, res, next) {
     try {
-      // Validar entrada
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Error de validación',
-          errors: errors.array()
-        });
+        return res.status(400).json({ errors: errors.array() });
       }
-      
-      // Preparar datos para inserción en la base de datos
+
+      const { employee_id, type, amount, date, status, payment_date, notes } = req.body;
+
+      const dateObj = new Date(date);
+      const month_period = dateObj.getMonth() + 1; // getMonth() devuelve 0-11
+      const year_period = dateObj.getFullYear();
+
       const previsionalData = {
-        employee_id: req.body.employee_id || 0, // Placeholder, en producción se debería validar
-        employee_name: req.body.nombre,
-        employee_rut: req.body.rut,
-        cost_center_id: req.body.proyectoId || null,
-        type: req.body.tipo,
-        amount: req.body.monto,
-        date: req.body.fecha,
-        period: req.body.fecha, // Formato MM/YYYY
-        state: req.body.estado || 'pending',
-        area: req.body.area || null,
-        centro_costo: req.body.centroCosto || null,
-        notes: req.body.notas || null
+        employee_id,
+        type,
+        amount,
+        date,
+        month_period,
+        year_period,
+        status,
+        payment_date,
+        notes,
       };
-      
+
       const previsional = await previsionalModel.create(previsionalData);
-      
+
       res.status(201).json({
         success: true,
         message: 'Registro previsional creado exitosamente',
-        data: previsional
+        data: previsional,
       });
     } catch (error) {
       next(error);
@@ -55,48 +45,26 @@ export default {
 
   /**
    * Obtiene la lista de previsionales con filtros
-   * @param {Object} req - Objeto de solicitud Express
-   * @param {Object} res - Objeto de respuesta Express
-   * @param {Function} next - Función next de Express
-   * @returns {Promise<void>}
    */
   async getPrevisionales(req, res, next) {
     try {
-      const { 
-        page = 1, 
+      const {
+        page = 1,
         limit = 20,
-        state,
-        category,
-        cost_center_id,
-        period,
-        area,
-        centro_costo,
+        status, // Cambiado de state
+        type,   // Cambiado de category
+        month_period,
+        year_period,
         start_date,
         end_date,
-        min_amount,
-        max_amount,
         search
       } = req.query;
+
+      const filters = { status, type, month_period, year_period, start_date, end_date, search };
       
-      // Construir filtros
-      const filters = {};
-      
-      // Aplicar filtros
-      if (state) filters.state = state;
-      if (category) filters.category = category;
-      if (cost_center_id) filters.cost_center_id = cost_center_id;
-      if (period) {
-        // Si period viene como string, convertirlo a array
-        filters.period = typeof period === 'string' ? [period] : period;
-      }
-      if (area) filters.area = area;
-      if (centro_costo) filters.centro_costo = centro_costo;
-      if (start_date) filters.start_date = start_date;
-      if (end_date) filters.end_date = end_date;
-      if (min_amount) filters.min_amount = parseFloat(min_amount);
-      if (max_amount) filters.max_amount = parseFloat(max_amount);
-      if (search) filters.search = search;
-      
+      // Limpiar filtros nulos o indefinidos
+      Object.keys(filters).forEach(key => filters[key] === undefined && delete filters[key]);
+
       const previsionales = await previsionalModel.list(filters, page, limit);
       
       res.json({
@@ -111,28 +79,17 @@ export default {
 
   /**
    * Obtiene un previsional por su ID
-   * @param {Object} req - Objeto de solicitud Express
-   * @param {Object} res - Objeto de respuesta Express
-   * @param {Function} next - Función next de Express
-   * @returns {Promise<void>}
    */
   async getPrevisionalById(req, res, next) {
     try {
       const { id } = req.params;
-      
       const previsional = await previsionalModel.getById(id);
       
       if (!previsional) {
-        return res.status(404).json({
-          success: false,
-          message: 'Registro previsional no encontrado'
-        });
+        return res.status(404).json({ success: false, message: 'Registro previsional no encontrado' });
       }
       
-      res.json({
-        success: true,
-        data: previsional
-      });
+      res.json({ success: true, data: previsional });
     } catch (error) {
       next(error);
     }
@@ -140,63 +97,30 @@ export default {
 
   /**
    * Actualiza un previsional existente
-   * @param {Object} req - Objeto de solicitud Express
-   * @param {Object} res - Objeto de respuesta Express
-   * @param {Function} next - Función next de Express
-   * @returns {Promise<void>}
    */
   async updatePrevisional(req, res, next) {
     try {
-      // Validar entrada
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Error de validación',
-          errors: errors.array()
-        });
+        return res.status(400).json({ errors: errors.array() });
       }
       
       const { id } = req.params;
-      
-      // Verificar si el previsional existe
-      const existingPrevisional = await previsionalModel.getById(id);
-      
-      if (!existingPrevisional) {
-        return res.status(404).json({
-          success: false,
-          message: 'Registro previsional no encontrado'
-        });
+      const previsionalData = req.body;
+
+      // Si se actualiza la fecha, recalcular periodo
+      if (previsionalData.date) {
+        const dateObj = new Date(previsionalData.date);
+        previsionalData.month_period = dateObj.getMonth() + 1;
+        previsionalData.year_period = dateObj.getFullYear();
       }
-      
-      // Preparar datos para actualización
-      const previsionalData = {};
-      
-      if (req.body.rut) previsionalData.employee_rut = req.body.rut;
-      if (req.body.nombre) previsionalData.employee_name = req.body.nombre;
-      if (req.body.tipo) previsionalData.type = req.body.tipo;
-      if (req.body.monto) previsionalData.amount = req.body.monto;
-      if (req.body.proyectoId) previsionalData.cost_center_id = req.body.proyectoId;
-      if (req.body.fecha) {
-        previsionalData.date = req.body.fecha;
-        previsionalData.period = req.body.fecha;
-      }
-      if (req.body.area) previsionalData.area = req.body.area;
-      if (req.body.centroCosto) previsionalData.centro_costo = req.body.centroCosto;
-      if (req.body.estado) previsionalData.state = req.body.estado;
-      if (req.body.notas) previsionalData.notes = req.body.notas;
-      
-      // Actualizar previsional
+
       const updated = await previsionalModel.update(id, previsionalData);
       
       if (!updated) {
-        return res.status(400).json({
-          success: false,
-          message: 'No se pudo actualizar el registro previsional'
-        });
+        return res.status(404).json({ success: false, message: 'Registro no encontrado o sin cambios' });
       }
       
-      // Obtener previsional actualizado
       const updatedPrevisional = await previsionalModel.getById(id);
       
       res.json({
@@ -211,32 +135,17 @@ export default {
 
   /**
    * Elimina un previsional
-   * @param {Object} req - Objeto de solicitud Express
-   * @param {Object} res - Objeto de respuesta Express
-   * @param {Function} next - Función next de Express
-   * @returns {Promise<void>}
    */
   async deletePrevisional(req, res, next) {
     try {
       const { id } = req.params;
+      const deleted = await previsionalModel.delete(id);
       
-      // Verificar si el previsional existe
-      const existingPrevisional = await previsionalModel.getById(id);
-      
-      if (!existingPrevisional) {
-        return res.status(404).json({
-          success: false,
-          message: 'Registro previsional no encontrado'
-        });
+      if (!deleted) {
+        return res.status(404).json({ success: false, message: 'Registro previsional no encontrado' });
       }
       
-      // Eliminar previsional
-      await previsionalModel.delete(id);
-      
-      res.json({
-        success: true,
-        message: 'Registro previsional eliminado exitosamente'
-      });
+      res.json({ success: true, message: 'Registro previsional eliminado exitosamente' });
     } catch (error) {
       next(error);
     }
@@ -244,47 +153,23 @@ export default {
 
   /**
    * Actualiza el estado de un previsional
-   * @param {Object} req - Objeto de solicitud Express
-   * @param {Object} res - Objeto de respuesta Express
-   * @param {Function} next - Función next de Express
-   * @returns {Promise<void>}
    */
-  async updatePrevisionalState(req, res, next) {
+  async updatePrevisionalStatus(req, res, next) {
     try {
-      // Validar entrada
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: 'Error de validación',
-          errors: errors.array()
-        });
+        return res.status(400).json({ errors: errors.array() });
       }
       
       const { id } = req.params;
-      const { state } = req.body;
+      const { status } = req.body;
       
-      if (!state) {
-        return res.status(400).json({
-          success: false,
-          message: 'El estado es requerido'
-        });
+      const updated = await previsionalModel.updateStatus(id, status);
+
+      if (!updated) {
+        return res.status(404).json({ success: false, message: 'Registro previsional no encontrado' });
       }
       
-      // Verificar si el previsional existe
-      const existingPrevisional = await previsionalModel.getById(id);
-      
-      if (!existingPrevisional) {
-        return res.status(404).json({
-          success: false,
-          message: 'Registro previsional no encontrado'
-        });
-      }
-      
-      // Actualizar estado
-      await previsionalModel.updateState(id, state);
-      
-      // Obtener previsional actualizado
       const updatedPrevisional = await previsionalModel.getById(id);
       
       res.json({
@@ -293,6 +178,96 @@ export default {
         data: updatedPrevisional
       });
     } catch (error) {
+      next(error);
+    }
+  },
+
+  /**
+   * Importación masiva de previsionales
+   */
+  async importPrevisionales(req, res, next) {
+    try {
+      const { previsionales } = req.body;
+
+      if (!Array.isArray(previsionales) || previsionales.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Se requiere un array de previsionales para importar',
+        });
+      }
+
+      console.log(`Iniciando importación de ${previsionales.length} registros previsionales`);
+
+      const results = {
+        total: previsionales.length,
+        success: 0,
+        failed: 0,
+        errors: [],
+      };
+
+      for (let i = 0; i < previsionales.length; i++) {
+        const prevItem = previsionales[i];
+        try {
+          // 1. Validar datos básicos del item
+          if (!prevItem.rut || !prevItem.nombre || !prevItem.tipo_previsional ||
+              !prevItem.monto || !prevItem.mes || !prevItem.año) {
+            throw new Error('Datos requeridos faltantes en la fila.');
+          }
+
+          // 2. Buscar empleado por RUT. Si no existe, crearlo.
+          let employee = await previsionalModel.findEmployeeByRut(prevItem.rut);
+          if (!employee) {
+            console.log(`Empleado con RUT ${prevItem.rut} no encontrado. Creando...`);
+            const [firstName, ...lastNameParts] = prevItem.nombre.split(' ');
+            const newEmployeeData = {
+              tax_id: prevItem.rut,
+              full_name: prevItem.nombre,
+              first_name: firstName,
+              last_name: lastNameParts.join(' ') || '',
+              active: true, // Por defecto, el nuevo empleado se crea como activo
+            };
+            const newEmployeeId = await empleadosModel.create(newEmployeeData);
+            employee = { id: newEmployeeId, ...newEmployeeData };
+            console.log(`Empleado creado con ID: ${newEmployeeId}`);
+          }
+
+          // 3. Crear el registro previsional
+          const previsionalData = {
+            employee_id: employee.id,
+            type: prevItem.tipo_previsional,
+            amount: prevItem.monto,
+            date: prevItem.fecha_pago || `${prevItem.año}-${String(prevItem.mes).padStart(2, '0')}-01`,
+            month_period: prevItem.mes,
+            year_period: prevItem.año,
+            status: 'pendiente',
+            payment_date: prevItem.fecha_pago || null,
+            notes: prevItem.notas || null,
+          };
+
+          await previsionalModel.create(previsionalData);
+          results.success++;
+
+        } catch (error) {
+          results.failed++;
+          results.errors.push({
+            row: i + 1,
+            error: error.message,
+            data: prevItem,
+          });
+          console.error(`Error en fila ${i + 1}:`, error.message);
+        }
+      }
+
+      const statusCode = results.failed > 0 ? 207 : 200; // 207 Multi-Status si hay errores
+
+      res.status(statusCode).json({
+        success: results.failed === 0,
+        message: `Importación completada: ${results.success} exitosos, ${results.failed} fallidos.`,
+        results,
+      });
+
+    } catch (error) {
+      console.error('Error en importación masiva:', error);
       next(error);
     }
   }

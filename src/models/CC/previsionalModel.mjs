@@ -1,6 +1,18 @@
 import { pool } from "../../config/database.mjs";
 
 /**
+ * Normaliza una fecha para el formato DATE de MySQL (YYYY-MM-DD)
+ */
+function normalizeDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return d.toISOString().split('T')[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const parsed = new Date(d);
+  if (!isNaN(parsed.getTime())) return parsed.toISOString().split('T')[0];
+  return null;
+}
+
+/**
  * Modelo para gestionar previsionales (AFP, Isapre, etc.)
  */
 export default {
@@ -12,67 +24,36 @@ export default {
   async create(previsionalData) {
     try {
       const connection = await pool.getConnection();
-      
       try {
-        await connection.beginTransaction();
+        // Normalizar fechas para formato DATE de MySQL
+        const normalizedDate = normalizeDate(previsionalData.date);
+        const normalizedPaymentDate = normalizeDate(previsionalData.payment_date);
         
-        // Obtener datos del proyecto si se proporciona
-        let projectName = null;
-        let projectCode = null;
-        
-        if (previsionalData.cost_center_id) {
-          const [projectRows] = await connection.query(
-            'SELECT name, code FROM cost_centers WHERE id = ?',
-            [previsionalData.cost_center_id]
-          );
-          
-          if (projectRows.length > 0) {
-            projectName = projectRows[0].name;
-            projectCode = projectRows[0].code;
-          }
-        }
-        
-        // Insertar previsional
         const [result] = await connection.query(
-          `INSERT INTO previsionales 
-           (employee_id, employee_name, employee_rut, cost_center_id, project_name, project_code, 
-            type, amount, date, period, state, area, centro_costo, centro_costo_nombre, 
-            descuentos_legales, payment_date, notes) 
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO previsionales
+           (employee_id, type, amount, date, month_period, year_period, status, payment_date, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             previsionalData.employee_id,
-            previsionalData.employee_name,
-            previsionalData.employee_rut,
-            previsionalData.cost_center_id || null,
-            projectName,
-            projectCode,
             previsionalData.type,
             previsionalData.amount,
-            previsionalData.date,
-            previsionalData.period,
-            previsionalData.state || 'pending',
-            previsionalData.area || null,
-            previsionalData.centro_costo || null,
-            previsionalData.centro_costo_nombre || null,
-            previsionalData.descuentos_legales || null,
-            previsionalData.payment_date || null,
+            normalizedDate,
+            previsionalData.month_period,
+            previsionalData.year_period,
+            previsionalData.status || 'pendiente',
+            normalizedPaymentDate,
             previsionalData.notes || null
           ]
         );
         
         const previsionalId = result.insertId;
         
-        // Obtener el registro creado
         const [previsionales] = await connection.query(
           'SELECT * FROM previsionales WHERE id = ?',
           [previsionalId]
         );
         
-        await connection.commit();
         return previsionales[0];
-      } catch (error) {
-        await connection.rollback();
-        throw error;
       } finally {
         connection.release();
       }
@@ -114,40 +95,16 @@ export default {
   async update(id, previsionalData) {
     try {
       const connection = await pool.getConnection();
-      
       try {
-        await connection.beginTransaction();
-        
-        // Actualizar datos del proyecto si se proporciona
-        let projectName = null;
-        let projectCode = null;
-        
-        if (previsionalData.cost_center_id) {
-          const [projectRows] = await connection.query(
-            'SELECT name, code FROM cost_centers WHERE id = ?',
-            [previsionalData.cost_center_id]
-          );
-          
-          if (projectRows.length > 0) {
-            projectName = projectRows[0].name;
-            projectCode = projectRows[0].code;
-            
-            // Actualizar project_name y project_code
-            previsionalData.project_name = projectName;
-            previsionalData.project_code = projectCode;
-          }
-        }
-        
         const fields = [];
         const values = [];
         
-        // Construir consulta dinámica con solo los campos a actualizar
         const updateableFields = [
-          'employee_id', 'employee_name', 'employee_rut', 'cost_center_id', 'project_name',
-          'project_code', 'type', 'amount', 'date', 'period', 'state', 'area', 
-          'centro_costo', 'centro_costo_nombre', 'descuentos_legales', 'payment_date', 'notes'
+          'employee_id', 'type', 'amount', 'month_period',
+          'year_period', 'status', 'notes'
         ];
         
+        // Handle regular fields
         updateableFields.forEach(field => {
           if (previsionalData[field] !== undefined) {
             fields.push(`${field} = ?`);
@@ -155,25 +112,29 @@ export default {
           }
         });
         
-        // Si no hay campos para actualizar, retornar
+        // Handle date fields with normalization
+        if (previsionalData.date !== undefined) {
+          fields.push('date = ?');
+          values.push(normalizeDate(previsionalData.date));
+        }
+        
+        if (previsionalData.payment_date !== undefined) {
+          fields.push('payment_date = ?');
+          values.push(normalizeDate(previsionalData.payment_date));
+        }
+        
         if (fields.length === 0) {
           return false;
         }
         
-        // Añadir ID al final de los parámetros
         values.push(id);
         
-        // Ejecutar actualización
         const [result] = await connection.query(
           `UPDATE previsionales SET ${fields.join(', ')} WHERE id = ?`,
           values
         );
         
-        await connection.commit();
         return result.affectedRows > 0;
-      } catch (error) {
-        await connection.rollback();
-        throw error;
       } finally {
         connection.release();
       }
@@ -205,19 +166,19 @@ export default {
   /**
    * Actualiza el estado de un previsional
    * @param {number} id - ID del previsional
-   * @param {string} state - Nuevo estado
+   * @param {string} status - Nuevo estado
    * @returns {Promise<boolean>} Resultado de la operación
    */
-  async updateState(id, state) {
+  async updateStatus(id, status) {
     try {
       const [result] = await pool.query(
-        'UPDATE previsionales SET state = ? WHERE id = ?',
-        [state, id]
+        'UPDATE previsionales SET status = ? WHERE id = ?',
+        [status, id]
       );
       
       return result.affectedRows > 0;
     } catch (error) {
-      console.error('Error en updateState previsional:', error.message);
+      console.error('Error en updateStatus previsional:', error.message);
       throw error;
     }
   },
@@ -235,35 +196,25 @@ export default {
       const whereConditions = [];
       const queryParams = [];
       
-      // Aplicar filtros
-      if (filters.state) {
-        whereConditions.push('state = ?');
-        queryParams.push(filters.state);
+      if (filters.status) {
+        whereConditions.push('status = ?');
+        queryParams.push(filters.status);
       }
       
-      if (filters.category) {
+      if (filters.type) {
         whereConditions.push('type = ?');
-        queryParams.push(filters.category);
+        queryParams.push(filters.type);
       }
+
       
-      if (filters.cost_center_id) {
-        whereConditions.push('cost_center_id = ?');
-        queryParams.push(filters.cost_center_id);
+      if (filters.month_period) {
+        whereConditions.push('month_period = ?');
+        queryParams.push(filters.month_period);
       }
-      
-      if (filters.period && Array.isArray(filters.period) && filters.period.length > 0) {
-        whereConditions.push('period IN (?)');
-        queryParams.push(filters.period);
-      }
-      
-      if (filters.area) {
-        whereConditions.push('area = ?');
-        queryParams.push(filters.area);
-      }
-      
-      if (filters.centro_costo) {
-        whereConditions.push('centro_costo = ?');
-        queryParams.push(filters.centro_costo);
+
+      if (filters.year_period) {
+        whereConditions.push('year_period = ?');
+        queryParams.push(filters.year_period);
       }
       
       if (filters.start_date) {
@@ -276,37 +227,22 @@ export default {
         queryParams.push(filters.end_date);
       }
       
-      if (filters.min_amount) {
-        whereConditions.push('amount >= ?');
-        queryParams.push(filters.min_amount);
-      }
+      // ... otros filtros que quieras mantener
       
-      if (filters.max_amount) {
-        whereConditions.push('amount <= ?');
-        queryParams.push(filters.max_amount);
-      }
-      
-      if (filters.search) {
-        whereConditions.push('(employee_name LIKE ? OR employee_rut LIKE ? OR project_name LIKE ?)');
-        const searchTerm = `%${filters.search}%`;
-        queryParams.push(searchTerm, searchTerm, searchTerm);
-      }
-      
-      // Construir la cláusula WHERE
       const whereClause = whereConditions.length > 0 
         ? `WHERE ${whereConditions.join(' AND ')}` 
         : '';
       
-      // Obtener previsionales
       const [rows] = await pool.query(
-        `SELECT * FROM previsionales 
-         ${whereClause} 
-         ORDER BY date DESC 
+        `SELECT p.*, e.full_name as employee_name, e.tax_id as employee_rut
+         FROM previsionales p
+         LEFT JOIN employees e ON p.employee_id = e.id
+         ${whereClause}
+         ORDER BY p.date DESC
          LIMIT ? OFFSET ?`,
         [...queryParams, parseInt(limit), parseInt(offset)]
       );
       
-      // Obtener total para la paginación
       const [countResult] = await pool.query(
         `SELECT COUNT(*) AS total FROM previsionales ${whereClause}`,
         queryParams
@@ -327,5 +263,25 @@ export default {
       console.error('Error en list previsionales:', error.message);
       throw error;
     }
-  }
+  },
+
+  /**
+   * Busca un empleado por RUT
+   * @param {string} rut - RUT del empleado
+   * @returns {Promise<Object|null>} Datos del empleado o null si no existe
+   */
+  async findEmployeeByRut(rut) {
+    try {
+      const [rows] = await pool.query(
+        'SELECT id, full_name, tax_id FROM employees WHERE tax_id = ?',
+        [rut]
+      );
+      
+      return rows.length > 0 ? rows[0] : null;
+    } catch (error) {
+      console.error('Error en findEmployeeByRut:', error.message);
+      throw error;
+    }
+  },
+
 };

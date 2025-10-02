@@ -5,6 +5,7 @@ import { authenticate } from '../../middleware/auth.mjs';
 import { pool } from '../../config/database.mjs';
 import * as itemModel from '../../models/CC/ordenCompraItemModel.mjs';
 import * as ordenCompraModel from '../../models/CC/ordenCompraModel.mjs';
+import * as itemController from '../../controllers/CC/ordenCompraItemController.mjs';
 
 const router = Router();
 
@@ -211,5 +212,20 @@ router.get('/api/ordenes-compra/:poId/items/stats', authenticate, async (req, re
 		res.status(500).json({ success: false, message: error.message });
 	}
 });
+
+// NEW ENDPOINTS - Get items by cost center ID
+router.get('/api/ordenes-compra/items/by-cost-center/:costCenterId', authenticate, itemController.getItemsByCostCenter);
+
+// Get items by account category ID
+router.get('/api/ordenes-compra/items/by-account-category/:accountCategoryId', authenticate, itemController.getItemsByAccountCategory);
+
+// Get items by both cost center ID and account category ID
+router.get('/api/ordenes-compra/items/by-cost-center-and-category/:costCenterId/:accountCategoryId', authenticate, itemController.getItemsByCostCenterAndAccountCategory);
+
+// Get summary statistics by cost center ID
+router.get('/api/ordenes-compra/items/summary/cost-center/:costCenterId', authenticate, itemController.getSummaryByCostCenter);
+
+// Get summary statistics by account category ID
+router.get('/api/ordenes-compra/items/summary/account-category/:accountCategoryId', authenticate, itemController.getSummaryByAccountCategory);
 
 export default router;

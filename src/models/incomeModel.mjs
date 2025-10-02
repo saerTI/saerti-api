@@ -13,6 +13,7 @@ export async function getAll(filters = {}, pagination = {}) {
     let baseQuery = `
       FROM incomes i
       LEFT JOIN cost_centers cc ON i.cost_center_id = cc.id
+      LEFT JOIN income_categories ic ON i.category_id = ic.id
       WHERE 1=1
     `;
     
@@ -26,10 +27,11 @@ export async function getAll(filters = {}, pagination = {}) {
         i.client_tax_id LIKE ? OR
         i.ep_detail LIKE ? OR
         cc.name LIKE ? OR
-        cc.code LIKE ?
+        cc.code LIKE ? OR
+        ic.categoria LIKE ?
       )`;
       const searchTerm = `%${filters.search}%`;
-      queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
+      queryParams.push(searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm, searchTerm);
     }
     
     if (filters.state) {
@@ -80,6 +82,11 @@ export async function getAll(filters = {}, pagination = {}) {
       queryParams.push(filters.factoring);
     }
     
+    if (filters.categoryId) {
+      baseQuery += ` AND i.category_id = ?`;
+      queryParams.push(filters.categoryId);
+    }
+    
     // ✅ GET TOTAL COUNT
     const [countResult] = await pool.query(
       `SELECT COUNT(*) as total ${baseQuery}`,
@@ -93,7 +100,8 @@ export async function getAll(filters = {}, pagination = {}) {
         i.*,
         cc.code as cost_center_code,
         cc.name as center_name,
-        cc.description as project_name
+        cc.description as project_name,
+        ic.categoria as category_name
       ${baseQuery}
       ORDER BY i.date DESC, i.created_at DESC
       LIMIT ? OFFSET ?
@@ -145,9 +153,12 @@ export async function getById(id) {
         cc.id as cost_center_id,
         cc.code as cost_center_code,
         cc.name as center_name,
-        cc.description as project_name
+        cc.description as project_name,
+        i.category_id,
+        ic.categoria as category_name
       FROM incomes i
       LEFT JOIN cost_centers cc ON i.cost_center_id = cc.id
+      LEFT JOIN income_categories ic ON i.category_id = ic.id
       WHERE i.id = ?
     `, [id]);
     
@@ -198,14 +209,17 @@ export async function create(incomeData) {
       const existingId = existingRows[0].id;
       console.log('📝 Updating existing income:', existingId);
       
+      // Remove cost_center_code from update data since it's not a DB column
+      const { cost_center_code, ...cleanIncomeData } = incomeData;
+      
       const updateFields = [];
       const updateValues = [];
       
       // Build dynamic update query
-      Object.keys(incomeData).forEach(key => {
-        if (key !== 'document_number' && incomeData[key] !== undefined) {
+      Object.keys(cleanIncomeData).forEach(key => {
+        if (key !== 'document_number' && cleanIncomeData[key] !== undefined) {
           updateFields.push(`${key} = ?`);
-          updateValues.push(incomeData[key]);
+          updateValues.push(cleanIncomeData[key]);
         }
       });
       
@@ -225,16 +239,36 @@ export async function create(incomeData) {
       
       await connection.query(updateQuery, updateValues);
       
-      result = await getById(existingId);
-      result.id = existingId;
+      // Get the updated record using the same connection
+      const [updatedRows] = await connection.query(`
+        SELECT 
+          i.*,
+          cc.id as cost_center_id,
+          cc.code as cost_center_code,
+          cc.name as center_name,
+          cc.description as project_name,
+          ic.categoria as category_name
+        FROM incomes i
+        LEFT JOIN cost_centers cc ON i.cost_center_id = cc.id
+        LEFT JOIN income_categories ic ON i.category_id = ic.id
+        WHERE i.id = ?
+      `, [existingId]);
+      
+      result = updatedRows[0] || null;
+      if (result) {
+        result.id = existingId;
+      }
       isUpdate = true;
       
     } else {
       // CREATE NEW
       console.log('➕ Creating new income');
       
+      // Remove cost_center_code from insertData since it's not a DB column
+      const { cost_center_code, ...cleanIncomeData } = incomeData;
+      
       const insertData = {
-        ...incomeData,
+        ...cleanIncomeData,
         cost_center_id: costCenterId
       };
       
@@ -248,11 +282,34 @@ export async function create(incomeData) {
       `;
       
       const [insertResult] = await connection.query(insertQuery, values);
-      result = await getById(insertResult.insertId);
-      result.id = insertResult.insertId;
+      
+      // Get the created record using the same connection
+      const [createdRows] = await connection.query(`
+        SELECT 
+          i.*,
+          cc.id as cost_center_id,
+          cc.code as cost_center_code,
+          cc.name as center_name,
+          cc.description as project_name,
+          ic.categoria as category_name
+        FROM incomes i
+        LEFT JOIN cost_centers cc ON i.cost_center_id = cc.id
+        LEFT JOIN income_categories ic ON i.category_id = ic.id
+        WHERE i.id = ?
+      `, [insertResult.insertId]);
+      
+      result = createdRows[0] || null;
+      if (result) {
+        result.id = insertResult.insertId;
+      }
     }
     
     await connection.commit();
+    
+    if (!result) {
+      throw new Error('Failed to create or retrieve income record');
+    }
+    
     console.log('✅ Income processed successfully:', result.id);
     
     return {
@@ -457,8 +514,8 @@ export async function getStats(filters = {}) {
         SUM(CASE WHEN i.state = 'facturado' THEN 1 ELSE 0 END) as facturado,
         SUM(CASE WHEN i.state = 'pagado' THEN 1 ELSE 0 END) as pagado,
         SUM(CASE WHEN i.state = 'cancelado' THEN 1 ELSE 0 END) as cancelado,
-        SUM(i.ep_total) as monto_total,
-        AVG(i.ep_total) as monto_promedio,
+        SUM(i.total_amount) as monto_total,
+        AVG(i.total_amount) as monto_promedio,
         SUM(CASE WHEN i.factoring IS NOT NULL AND i.factoring != '' THEN 1 ELSE 0 END) as factoring_count,
         SUM(CASE WHEN i.factoring IS NULL OR i.factoring = '' THEN 1 ELSE 0 END) as transfer_count
       ${baseQuery}
@@ -470,7 +527,7 @@ export async function getStats(filters = {}) {
         i.client_name,
         i.client_tax_id,
         COUNT(*) as cantidad,
-        SUM(i.ep_total) as monto_total
+        SUM(i.total_amount) as monto_total
       ${baseQuery}
       GROUP BY i.client_name, i.client_tax_id
       ORDER BY monto_total DESC
@@ -483,7 +540,7 @@ export async function getStats(filters = {}) {
         cc.code,
         cc.name,
         COUNT(*) as cantidad,
-        SUM(i.ep_total) as monto_total
+        SUM(i.total_amount) as monto_total
       ${baseQuery}
       AND cc.id IS NOT NULL
       GROUP BY cc.id, cc.code, cc.name
@@ -520,6 +577,34 @@ export async function getStats(filters = {}) {
     
   } catch (error) {
     console.error('❌ Error in IncomeModel.getStats:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get all active cost centers
+ */
+export async function getCostCenters() {
+  try {
+    console.log('🔍 IncomeModel.getCostCenters');
+    
+    const [rows] = await pool.query(`
+      SELECT 
+        id,
+        code,
+        name,
+        description,
+        active
+      FROM cost_centers 
+      WHERE active = TRUE
+      ORDER BY code ASC
+    `);
+    
+    console.log(`✅ Found ${rows.length} active cost centers`);
+    return rows;
+    
+  } catch (error) {
+    console.error('❌ Error in IncomeModel.getCostCenters:', error);
     throw error;
   }
 }

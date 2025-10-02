@@ -19,6 +19,7 @@ async function getIncomes(req, res, next) {
       search: req.query.search?.trim() || null,
       state: req.query.state || null,
       costCenterId: req.query.costCenterId || null,
+      categoryId: req.query.categoryId || null,
       clientId: req.query.clientId || null,
       startDate: req.query.startDate || null,
       endDate: req.query.endDate || null,
@@ -69,6 +70,8 @@ async function getIncomes(req, res, next) {
       cost_center_code: row.cost_center_code,
       center_name: row.center_name,
       project_name: row.project_name,
+      category_id: row.category_id,
+      category_name: row.category_name,
       created_at: row.created_at,
       updated_at: row.updated_at
     }));
@@ -169,6 +172,10 @@ async function getIncomeById(req, res, next) {
         message: 'Income not found'
       });
     }
+
+    console.log('📄 Income raw data:', income);
+    console.log('📄 Income category_id:', income.category_id);
+    console.log('📄 Income category_name:', income.category_name);
     
     // ✅ TRANSFORMAR DATOS PARA EL FRONTEND
     const transformedData = {
@@ -197,6 +204,8 @@ async function getIncomeById(req, res, next) {
       cost_center_code: income.cost_center_code,
       center_name: income.center_name,
       project_name: income.project_name,
+      category_id: income.category_id, // ✅ AGREGADO
+      category_name: income.category_name, // ✅ AGREGADO
       description: income.description,
       notes: income.notes,
       created_at: income.created_at,
@@ -254,6 +263,7 @@ async function createIncome(req, res, next) {
       payment_status: req.body.payment_status || 'no_pagado',
       date: req.body.date,
       cost_center_code: req.body.cost_center_code?.trim() || null,
+      category_id: req.body.category_id || null, // ✅ AGREGADO
       description: req.body.description?.trim() || '',
       notes: req.body.notes?.trim() || '',
       created_by: req.user.id
@@ -352,6 +362,7 @@ async function createIncomesBatch(req, res, next) {
           payment_status: mapPaymentStatusToSpanish(item.payment_status || item.estado_pago || 'no_pagado'),
           date: date,
           cost_center_code: item.cost_center_code || item.cod_obra || null,
+          category_id: item.category_id || null, // ✅ AGREGADO
           description: item.description || item.nombre_faena || '',
           notes: item.notes || `Importado en lote - ${new Date().toISOString()}`,
           created_by: req.user.id
@@ -556,9 +567,40 @@ async function getIncomeStats(req, res, next) {
     
     const stats = await incomeModel.getStats(filters);
     
+    // ✅ TRANSFORMAR ESTADÍSTICAS PARA EL FRONTEND
+    const transformedStats = {
+      total: parseInt(stats.total) || 0,
+      borrador: parseInt(stats.borrador) || 0,
+      activo: parseInt(stats.activo) || 0,
+      facturado: parseInt(stats.facturado) || 0,
+      pagado: parseInt(stats.pagado) || 0,
+      cancelado: parseInt(stats.cancelado) || 0,
+      monto_total: parseFloat(stats.monto_total) || 0,
+      monto_promedio: parseFloat(stats.monto_promedio) || 0,
+      
+      // Mapear a nombres que espera el frontend
+      totalIngresos: parseInt(stats.total) || 0,
+      montoTotal: parseFloat(stats.monto_total) || 0,
+      
+      // Estados para el frontend
+      draft: parseInt(stats.borrador) || 0,
+      active: parseInt(stats.activo) || 0,
+      invoiced: parseInt(stats.facturado) || 0,
+      paid: parseInt(stats.pagado) || 0,
+      cancelled: parseInt(stats.cancelado) || 0,
+      
+      // Tipos de pago
+      factoringCount: parseInt(stats.factoring_count) || 0,
+      transferCount: parseInt(stats.transfer_count) || 0,
+      
+      // Agrupaciones
+      porCliente: stats.por_cliente || {},
+      porCentro: stats.por_centro || {}
+    };
+    
     res.json({
       success: true,
-      data: stats
+      data: transformedStats
     });
   } catch (error) {
     next(error);
@@ -596,6 +638,28 @@ function mapPaymentStatusToSpanish(paymentStatus) {
   return statusMap[paymentStatus?.toLowerCase()] || 'no_pagado';
 }
 
+/**
+ * Get all active cost centers
+ */
+async function getCostCenters(req, res, next) {
+  try {
+    console.log('📥 Getting cost centers');
+    
+    const costCenters = await incomeModel.getCostCenters();
+    
+    console.log(`✅ Found ${costCenters.length} cost centers`);
+    
+    res.json(costCenters);
+    
+  } catch (error) {
+    console.error('❌ Error getting cost centers:', error);
+    res.status(500).json({ 
+      error: 'Error interno del servidor',
+      details: error.message 
+    });
+  }
+}
+
 export {
   getIncomes,
   getIncomeById,
@@ -605,5 +669,6 @@ export {
   deleteIncome,
   updateIncomeStatus,
   getIncomesByCostCenter,
-  getIncomeStats
+  getIncomeStats,
+  getCostCenters
 };

@@ -8,7 +8,8 @@ import {
   createRemuneracionesBatch,
   updateRemuneracion,
   deleteRemuneracion,
-  updateRemuneracionState
+  updateRemuneracionState,
+  importRemuneraciones
 } from '../../controllers/CC/remuneracionController.mjs';
 
 const router = Router();
@@ -22,34 +23,37 @@ router.post(
   '/api/remuneraciones',
   authenticate,
   [
-    body('rut')
-      .notEmpty().withMessage('El RUT es obligatorio')
-      .isLength({ min: 3, max: 20 }).withMessage('El RUT debe tener entre 3 y 20 caracteres'),
-    body('nombre')
-      .notEmpty().withMessage('El nombre es obligatorio')
-      .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres'),
-    body('tipo')
+    body('employee_id')
+      .notEmpty().withMessage('El ID del empleado es obligatorio')
+      .isInt({ min: 1 }).withMessage('El ID del empleado debe ser un número válido'),
+    body('type')
       .notEmpty().withMessage('El tipo es obligatorio')
-      .isIn(['REMUNERACION', 'ANTICIPO']).withMessage('Tipo no válido'),
-    body('sueldoLiquido')
-      .if(body('tipo').equals('REMUNERACION'))
-      .notEmpty().withMessage('El sueldo líquido es obligatorio para remuneraciones')
-      .isFloat({ min: 0 }).withMessage('El sueldo líquido debe ser un número positivo'),
-    body('anticipo')
-      .if(body('tipo').equals('ANTICIPO'))
-      .notEmpty().withMessage('El anticipo es obligatorio para anticipos')
+      .isIn(['remuneracion', 'anticipo', 'REMUNERACION', 'ANTICIPO']).withMessage('Tipo no válido'),
+    body('amount')
+      .notEmpty().withMessage('El monto es obligatorio')
+      .isFloat({ min: 0 }).withMessage('El monto debe ser un número positivo'),
+    body('net_salary').optional()
+      .isFloat({ min: 0 }).withMessage('El salario neto debe ser un número positivo'),
+    body('advance_payment').optional()
       .isFloat({ min: 0 }).withMessage('El anticipo debe ser un número positivo'),
-    // TODO: Cuando se implemente proyectos, descomentar:
-    // body('proyectoId')
-    //   .notEmpty().withMessage('El proyecto es obligatorio')
-    //   .isString().withMessage('ID de proyecto inválido'),
-    body('fecha')
+    body('date')
       .notEmpty().withMessage('La fecha es obligatoria')
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('estado').optional().isString().withMessage('Estado inválido'),
-    body('cargo').optional().isString().withMessage('Cargo inválido'),
-    body('diasTrabajados').optional().isInt({ min: 1, max: 31 }).withMessage('Días trabajados inválidos'),
-    body('metodoPago').optional().isString().withMessage('Método de pago inválido')
+    body('month_period')
+      .notEmpty().withMessage('El mes del período es obligatorio')
+      .isInt({ min: 1, max: 12 }).withMessage('El mes debe estar entre 1 y 12'),
+    body('year_period')
+      .notEmpty().withMessage('El año del período es obligatorio')
+      .isInt({ min: 2020, max: 2050 }).withMessage('Año del período inválido'),
+    body('work_days').optional()
+      .isInt({ min: 1, max: 31 }).withMessage('Los días trabajados deben estar entre 1 y 31'),
+    body('payment_method').optional()
+      .isIn(['transferencia', 'cheque', 'efectivo']).withMessage('Método de pago no válido'),
+    body('status').optional()
+      .isIn(['pendiente', 'aprobado', 'pagado', 'rechazado', 'cancelado']).withMessage('Estado no válido'),
+    body('payment_date').optional()
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha de pago inválido (YYYY-MM-DD)'),
+    body('notes').optional().isString().withMessage('Las notas deben ser texto')
   ],
   createRemuneracion
 );
@@ -63,18 +67,24 @@ router.post(
   '/api/remuneraciones/batch',
   authenticate,
   [
-    body('*.rut')
-      .notEmpty().withMessage('El RUT es obligatorio')
-      .isLength({ min: 3, max: 20 }).withMessage('El RUT debe tener entre 3 y 20 caracteres'),
-    body('*.nombre')
-      .notEmpty().withMessage('El nombre es obligatorio')
-      .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres'),
-    body('*.tipo')
+    body('*.employee_id')
+      .notEmpty().withMessage('El ID del empleado es obligatorio')
+      .isInt({ min: 1 }).withMessage('El ID del empleado debe ser un número válido'),
+    body('*.type')
       .notEmpty().withMessage('El tipo es obligatorio')
-      .isIn(['REMUNERACION', 'ANTICIPO']).withMessage('Tipo no válido'),
-    body('*.fecha')
+      .isIn(['remuneracion', 'anticipo', 'REMUNERACION', 'ANTICIPO']).withMessage('Tipo no válido'),
+    body('*.amount')
+      .notEmpty().withMessage('El monto es obligatorio')
+      .isFloat({ min: 0 }).withMessage('El monto debe ser un número positivo'),
+    body('*.date')
       .notEmpty().withMessage('La fecha es obligatoria')
-      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)')
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
+    body('*.month_period')
+      .notEmpty().withMessage('El mes del período es obligatorio')
+      .isInt({ min: 1, max: 12 }).withMessage('El mes debe estar entre 1 y 12'),
+    body('*.year_period')
+      .notEmpty().withMessage('El año del período es obligatorio')
+      .isInt({ min: 2020, max: 2050 }).withMessage('Año del período inválido')
   ],
   createRemuneracionesBatch
 );
@@ -110,25 +120,31 @@ router.put(
   '/api/remuneraciones/:id',
   authenticate,
   [
-    body('rut').optional()
-      .isLength({ min: 3, max: 20 }).withMessage('El RUT debe tener entre 3 y 20 caracteres'),
-    body('nombre').optional()
-      .isLength({ min: 2, max: 100 }).withMessage('El nombre debe tener entre 2 y 100 caracteres'),
-    body('tipo').optional()
-      .isIn(['REMUNERACION', 'ANTICIPO']).withMessage('Tipo no válido'),
-    body('sueldoLiquido').optional()
-      .isFloat({ min: 0 }).withMessage('El sueldo líquido debe ser un número positivo'),
-    body('anticipo').optional()
+    body('employee_id').optional()
+      .isInt({ min: 1 }).withMessage('El ID del empleado debe ser un número válido'),
+    body('type').optional()
+      .isIn(['remuneracion', 'anticipo', 'REMUNERACION', 'ANTICIPO']).withMessage('Tipo no válido'),
+    body('amount').optional()
+      .isFloat({ min: 0 }).withMessage('El monto debe ser un número positivo'),
+    body('net_salary').optional()
+      .isFloat({ min: 0 }).withMessage('El salario neto debe ser un número positivo'),
+    body('advance_payment').optional()
       .isFloat({ min: 0 }).withMessage('El anticipo debe ser un número positivo'),
-    // TODO: Cuando se implemente proyectos, descomentar:
-    // body('proyectoId').optional()
-    //   .isString().withMessage('ID de proyecto inválido'),
-    body('fecha').optional()
+    body('date').optional()
       .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha inválido (YYYY-MM-DD)'),
-    body('estado').optional().isString().withMessage('Estado inválido'),
-    body('cargo').optional().isString().withMessage('Cargo inválido'),
-    body('diasTrabajados').optional().isInt({ min: 1, max: 31 }).withMessage('Días trabajados inválidos'),
-    body('metodoPago').optional().isString().withMessage('Método de pago inválido')
+    body('month_period').optional()
+      .isInt({ min: 1, max: 12 }).withMessage('El mes debe estar entre 1 y 12'),
+    body('year_period').optional()
+      .isInt({ min: 2020, max: 2050 }).withMessage('Año del período inválido'),
+    body('work_days').optional()
+      .isInt({ min: 1, max: 31 }).withMessage('Los días trabajados deben estar entre 1 y 31'),
+    body('payment_method').optional()
+      .isIn(['transferencia', 'cheque', 'efectivo']).withMessage('Método de pago no válido'),
+    body('status').optional()
+      .isIn(['pendiente', 'aprobado', 'pagado', 'rechazado', 'cancelado']).withMessage('Estado no válido'),
+    body('payment_date').optional()
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('Formato de fecha de pago inválido (YYYY-MM-DD)'),
+    body('notes').optional().isString().withMessage('Las notas deben ser texto')
   ],
   updateRemuneracion
 );
@@ -156,10 +172,40 @@ router.put(
     body('state')
       .notEmpty().withMessage('El estado es obligatorio')
       .isString().withMessage('Estado inválido')
-      .isIn(['draft', 'pending', 'approved', 'paid', 'rejected', 'cancelled'])
+      .isIn(['pendiente', 'aprobado', 'pagado', 'rechazado', 'cancelado', 'draft', 'pending', 'approved', 'paid', 'rejected', 'cancelled'])
       .withMessage('Estado no válido')
   ],
   updateRemuneracionState
+);
+
+/**
+ * @route   POST /api/remuneraciones/import
+ * @desc    Importación masiva de remuneraciones con creación automática de empleados
+ * @access  Privado
+ */
+router.post(
+  '/api/remuneraciones/import',
+  authenticate,
+  [
+    body('remuneraciones')
+      .isArray({ min: 1 }).withMessage('Se requiere un array de remuneraciones con al menos un elemento'),
+    body('remuneraciones.*.rut')
+      .notEmpty().withMessage('El RUT es obligatorio'),
+    body('remuneraciones.*.nombre')
+      .notEmpty().withMessage('El nombre del empleado es obligatorio'),
+    body('remuneraciones.*.tipo')
+      .notEmpty().withMessage('El tipo de remuneración es obligatorio'),
+    body('remuneraciones.*.monto')
+      .notEmpty().withMessage('El monto es obligatorio')
+      .isFloat({ min: 0 }).withMessage('El monto debe ser un número positivo'),
+    body('remuneraciones.*.mes')
+      .notEmpty().withMessage('El mes es obligatorio')
+      .isInt({ min: 1, max: 12 }).withMessage('El mes debe estar entre 1 y 12'),
+    body('remuneraciones.*.año')
+      .notEmpty().withMessage('El año es obligatorio')
+      .isInt({ min: 2020, max: 2050 }).withMessage('Año inválido')
+  ],
+  importRemuneraciones
 );
 
 export default router;

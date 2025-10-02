@@ -1278,6 +1278,7 @@ async function createIncomesTable() {
         
         -- References
         cost_center_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'Centro de costo asociado',
+        category_id BIGINT UNSIGNED DEFAULT NULL COMMENT 'Categoría de ingreso',
         
         -- Additional information
         description TEXT DEFAULT NULL COMMENT 'Descripción adicional',
@@ -1291,6 +1292,7 @@ async function createIncomesTable() {
         
         -- Foreign Keys
         FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
+        FOREIGN KEY (category_id) REFERENCES income_categories(id) ON DELETE SET NULL,
         FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
         
@@ -1302,6 +1304,7 @@ async function createIncomesTable() {
         INDEX idx_state (state),
         INDEX idx_payment_status (payment_status),
         INDEX idx_cost_center (cost_center_id),
+        INDEX idx_category (category_id),
         INDEX idx_ep_total (ep_total),
         INDEX idx_factoring (factoring),
         INDEX idx_payment_date (payment_date),
@@ -1313,6 +1316,145 @@ async function createIncomesTable() {
     console.log('✅ Incomes table created');
   } catch (error) {
     console.error('❌ Error creating incomes table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// INCOME CATEGORIES TABLE
+// ============================================
+async function createIncomeCategoriesTable() {
+  console.log('📊 Creating income_categories table...');
+  try {
+    if (await checkTableExists('income_categories')) {
+      console.log('ℹ️ income_categories table already exists, skipping...');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS income_categories (
+        id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+        categoria VARCHAR(100) NOT NULL COMMENT 'Nombre de la categoría de ingreso',
+        active BOOLEAN DEFAULT TRUE COMMENT 'Estado activo/inactivo',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        -- Indexes
+        INDEX idx_categoria (categoria),
+        INDEX idx_active (active),
+        INDEX idx_created_at (created_at)
+      )
+    `);
+    console.log('✅ Income categories table created');
+  } catch (error) {
+    console.error('❌ Error creating income_categories table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// FACTORING ENTITIES TABLE
+// ============================================
+async function createFactoringEntitiesTable() {
+  console.log('📊 Creating factoring_entities table...');
+  try {
+    if (await checkTableExists('factoring_entities')) {
+      console.log('ℹ️ factoring_entities table already exists, skipping...');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS factoring_entities (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        name VARCHAR(255) NOT NULL UNIQUE COMMENT 'Nombre de la entidad de factoring'
+      )
+    `);
+    console.log('✅ Factoring entities table created');
+  } catch (error) {
+    console.error('❌ Error creating factoring_entities table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// FACTORING TABLE
+// ============================================
+async function createFactoringTable() {
+  console.log('📊 Creating factoring table...');
+  try {
+    if (await checkTableExists('factoring')) {
+      console.log('ℹ️ factoring table already exists, skipping...');
+      return;
+    }
+
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS factoring (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        factoring_entities_id INT NOT NULL COMMENT 'Referencia a la entidad de factoring',
+        interest_rate DECIMAL(5,2) NOT NULL COMMENT 'Tasa de interés del factoring',
+        mount DECIMAL(15,2) NOT NULL COMMENT 'Monto del factoring',
+        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Referencia al centro de costos',
+        date_factoring DATE NOT NULL COMMENT 'Fecha del factoring',
+        date_expiration DATE NOT NULL COMMENT 'Fecha de vencimiento',
+        payment_status INT DEFAULT 0 COMMENT 'Estado de pago - valor numérico para control interno',
+        status ENUM('Pendiente', 'Girado y no pagado', 'Girado y pagado') NOT NULL DEFAULT 'Pendiente' COMMENT 'Estado del factoring',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        
+        -- Foreign Keys
+        FOREIGN KEY (factoring_entities_id) REFERENCES factoring_entities(id) ON DELETE RESTRICT,
+        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE RESTRICT,
+        
+        -- Indexes
+        INDEX idx_factoring_entity (factoring_entities_id),
+        INDEX idx_cost_center (cost_center_id),
+        INDEX idx_date_factoring (date_factoring),
+        INDEX idx_date_expiration (date_expiration),
+        INDEX idx_status (status),
+        INDEX idx_payment_status (payment_status),
+        INDEX idx_created_at (created_at)
+      )
+    `);
+    console.log('✅ Factoring table created');
+  } catch (error) {
+    console.error('❌ Error creating factoring table:', error);
+    throw error;
+  }
+}
+
+// ============================================
+// INSERT DEFAULT INCOME CATEGORIES
+// ============================================
+async function insertDefaultIncomeCategories() {
+  try {
+    console.log('📝 Inserting default income categories...');
+    
+    // Check if data already exists
+    const [existingData] = await conn.query('SELECT COUNT(*) as count FROM income_categories');
+    if (existingData[0].count > 0) {
+      console.log('ℹ️ Income categories already exist, skipping...');
+      return;
+    }
+
+    const categories = [
+      'Pago de Clientes',
+      'Anticipos',
+      'Estados de Pago',
+      'Venta de Activos',
+      'Devoluciones',
+      'Otros Ingresos'
+    ];
+
+    for (const categoria of categories) {
+      await conn.query(`
+        INSERT INTO income_categories (categoria, active) 
+        VALUES (?, TRUE)
+      `, [categoria]);
+    }
+
+    console.log('✅ Default income categories inserted');
+  } catch (error) {
+    console.error('❌ Error inserting default income categories:', error);
     throw error;
   }
 }
@@ -2112,34 +2254,28 @@ async function createSocialSecurityTable() {
       CREATE TABLE IF NOT EXISTS previsionales (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         employee_id BIGINT UNSIGNED NOT NULL,
-        employee_name VARCHAR(100) NOT NULL,
-        employee_tax_id VARCHAR(20) NOT NULL COMMENT 'Employee RUT or Tax ID',
-        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Associated cost center',
         type ENUM('afp', 'isapre', 'isapre_7', 'seguro_cesantia', 'mutual') NOT NULL,
         amount DECIMAL(15,2) NOT NULL,
         date DATE NOT NULL,
-        period VARCHAR(7) NOT NULL COMMENT 'YYYY-MM format',
+        month_period INT(2) NOT NULL COMMENT 'Month of the period (1-12)',
+        year_period INT(4) NOT NULL COMMENT 'Year of the period (e.g., 2024)',
         status ENUM('pendiente', 'pagado', 'cancelado') DEFAULT 'pendiente',
-        area VARCHAR(100),
-        legal_deductions DECIMAL(15,2),
         payment_date DATE,
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         
         -- Foreign Keys
-        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE CASCADE,
+        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         
         -- Indexes
-        INDEX idx_employee_tax_id (employee_tax_id),
-        INDEX idx_period (period),
+        INDEX idx_period (month_period, year_period),
         INDEX idx_date (date),
-        INDEX idx_cost_center (cost_center_id),
         INDEX idx_status (status),
         INDEX idx_type (type)
       )
     `);
-    console.log('✅ previsionales table created (→ cost_centers)');
+    console.log('✅ previsionales table created');
   } catch (error) {
     console.error('❌ Error creating previsionales table:', error);
     throw error;
@@ -2159,37 +2295,31 @@ async function createPayrollTable() {
       CREATE TABLE IF NOT EXISTS payroll (
         id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
         employee_id BIGINT UNSIGNED NOT NULL,
-        employee_name VARCHAR(100) NOT NULL,
-        employee_tax_id VARCHAR(20) NOT NULL COMMENT 'Employee RUT or Tax ID',
-        employee_position VARCHAR(100),
-        cost_center_id BIGINT UNSIGNED NOT NULL COMMENT 'Associated cost center',
         type ENUM('remuneracion', 'anticipo') NOT NULL,
         amount DECIMAL(15,2) NOT NULL,
         net_salary DECIMAL(15,2) COMMENT 'Net salary after deductions',
         advance_payment DECIMAL(15,2) COMMENT 'Advance payment',
         date DATE NOT NULL,
-        period VARCHAR(7) NOT NULL COMMENT 'YYYY-MM format',
+        month_period INT(2) NOT NULL COMMENT 'Month of the period (1-12)',
+        year_period INT(4) NOT NULL COMMENT 'Year of the period (e.g., 2024)',
         work_days INT DEFAULT 30,
         payment_method ENUM('transferencia', 'cheque', 'efectivo') DEFAULT 'transferencia',
         status ENUM('pendiente', 'aprobado', 'pagado', 'rechazado', 'cancelado') DEFAULT 'pendiente',
-        area VARCHAR(100),
         payment_date DATE,
         notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         
         -- Foreign Keys
-        FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE CASCADE,
-        
+        FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         -- Indexes
-        INDEX idx_employee_tax_id (employee_tax_id),
-        INDEX idx_period (period),
+        INDEX idx_employee (employee_id),
+        INDEX idx_period (month_period, year_period),
         INDEX idx_date (date),
-        INDEX idx_cost_center (cost_center_id),
         INDEX idx_status (status)
       )
     `);
-    console.log('✅ Payroll table created (→ cost_centers)');
+    console.log('✅ Payroll table created (→ employees)');
   } catch (error) {
     console.error('❌ Error creating payroll table:', error);
     throw error;
@@ -2855,6 +2985,9 @@ async function setup() {
     await createInvoicesTable();
     await createInvoicePaymentsTable();
     await createFixedCostsTable();
+    await createIncomeCategoriesTable();
+    await createFactoringEntitiesTable();
+    await createFactoringTable();
     await createIncomesTable();
 
     
@@ -2863,6 +2996,7 @@ async function setup() {
     // ==========================================
     console.log('\n🏗️ Step 5: Creating human resources tables...');
     
+    await createEmployeesTable();
     await createSocialSecurityTable();
     await createPayrollTable();
     
@@ -2894,6 +3028,7 @@ async function setup() {
     await insertAccountingCostsExample();
     await insertClients();
     await insertFixedCostsTestData();
+    await insertDefaultIncomeCategories();
     await insertSampleIncomes();
 
     // ==========================================
@@ -2937,10 +3072,13 @@ async function showSchemaStatus() {
       'account_categories', 
       'accounting_costs',
       'purchase_orders',
-  'purchase_order_items',
+      'purchase_order_items',
       'invoices',
       'suppliers',
       'users',
+      'income_categories',
+      'factoring_entities',
+      'factoring',
       'incomes'
     ];
     
@@ -2960,9 +3098,10 @@ async function showSchemaStatus() {
     console.log('   ✅ invoices.cost_center_id → cost_centers.id');
     console.log('   ✅ accounting_costs.cost_center_id → cost_centers.id');
     console.log('   ✅ accounting_costs.account_category_id → account_categories.id');
-    console.log('   ✅ previsionales.cost_center_id → cost_centers.id');
     console.log('   ✅ payroll.cost_center_id → cost_centers.id');
     console.log('   ✅ incomes.cost_center_id → cost_centers.id');
+    console.log('   ✅ factoring.factoring_entities_id → factoring_entities.id');
+    console.log('   ✅ factoring.cost_center_id → cost_centers.id');
     
   } catch (error) {
     console.error('Error showing schema status:', error);
