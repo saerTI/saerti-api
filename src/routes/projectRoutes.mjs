@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import projectController from '../controllers/projectController.mjs';
-import { authenticate, authorize } from '../middleware/auth.mjs';
+import * as projectController from '../controllers/projectController.mjs';
+import { clerkAuth as authenticate, authorize } from '../middleware/clerkAuth.mjs';
 
 const router = Router();
 

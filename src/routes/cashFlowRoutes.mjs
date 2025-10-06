@@ -1,8 +1,8 @@
 // src/routes/cashFlowRoutes.mjs - Rutas actualizadas con nuevos endpoints
 import { Router } from 'express';
 import { body } from 'express-validator';
-import cashFlowController from '../controllers/cashFlowController.mjs';
-import { authenticate, authorize } from '../middleware/auth.mjs';
+import * as cashFlowController from '../controllers/cashFlowController.mjs';
+import { clerkAuth as authenticate, authorize } from '../middleware/clerkAuth.mjs';
 
 const router = Router();
 

@@ -1,640 +1,506 @@
-// src/controllers/cashFlowController.mjs - Controlador mejorado similar a costsController
-import cashFlowModel from '../models/cashFlowModel.mjs';
-import { validationResult } from 'express-validator';
-
-// ==========================================
-// OBTENER DATOS PRINCIPALES DEL FLUJO DE CAJA
-// ==========================================
+// src/controllers/cashFlowController.mjs
+import { pool } from '../config/database.mjs';
 
 /**
- * GET /api/cash-flow/data
- * Obtener datos principales del flujo de caja con filtros
+ * GET /api/cashflow
+ * Obtener todos los registros de flujo de caja
  */
+export const getAllCashFlow = async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se encontró organización para el usuario'
+      });
+    }
+
+    const [cashflow] = await pool.query(
+      `SELECT cf.*, p.name as project_name, u.name as created_by_name
+       FROM cashflow cf
+       LEFT JOIN projects p ON cf.project_id = p.id
+       LEFT JOIN users u ON cf.created_by = u.id
+       WHERE cf.organization_id = ?
+       ORDER BY cf.date DESC`,
+      [organizationId]
+    );
+    
+    res.json({ 
+      success: true, 
+      data: cashflow,
+      count: cashflow.length,
+      organization_id: organizationId
+    });
+  } catch (error) {
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al obtener flujo de caja',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * POST /api/cashflow
+ * Crear nuevo registro de flujo de caja
+ */
+export const createCashFlow = async (req, res) => {
+  try {
+    const organizationId = req.user.organizationId;
+    const { project_id, type, category, amount, description, date } = req.body;
+    
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se encontró organización'
+      });
+    }
+
+    const [result] = await pool.query(
+      `INSERT INTO cashflow 
+       (organization_id, project_id, type, category, amount, description, date, created_by) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [organizationId, project_id, type, category, amount, description, date, req.user.id]
+    );
+    
+    res.status(201).json({ 
+      success: true, 
+      data: {
+        id: result.insertId,
+        organization_id: organizationId,
+        ...req.body
+      },
+      message: 'Registro de flujo de caja creado exitosamente'
+    });
+  } catch (error) {
+    console.error('[CashFlow] Error creating:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al crear registro',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+/**
+ * GET /api/cashflow/:id
+ * Obtener registro específico
+ */
+export const getCashFlowById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const organizationId = req.user.organizationId;
+    
+    const [cashflow] = await pool.query(
+      `SELECT cf.*, p.name as project_name
+       FROM cashflow cf
+       LEFT JOIN projects p ON cf.project_id = p.id
+       WHERE cf.id = ? AND cf.organization_id = ?`,
+      [id, organizationId]
+    );
+    
+    if (cashflow.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Registro no encontrado'
+      });
+    }
+    
+    res.json({ success: true, data: cashflow[0] });
+  } catch (error) {
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * PUT /api/cashflow/:id
+ * Actualizar registro
+ */
+export const updateCashFlow = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const organizationId = req.user.organizationId;
+    const { project_id, type, category, amount, description, date } = req.body;
+    
+    const [existing] = await pool.query(
+      'SELECT * FROM cashflow WHERE id = ? AND organization_id = ?',
+      [id, organizationId]
+    );
+    
+    if (existing.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Registro no encontrado'
+      });
+    }
+    
+    await pool.query(
+      `UPDATE cashflow 
+       SET project_id = ?, type = ?, category = ?, amount = ?, description = ?, date = ?
+       WHERE id = ? AND organization_id = ?`,
+      [project_id, type, category, amount, description, date, id, organizationId]
+    );
+    
+    res.json({ success: true, message: 'Registro actualizado exitosamente' });
+  } catch (error) {
+    console.error('[CashFlow] Error updating:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * DELETE /api/cashflow/:id
+ * Eliminar registro
+ */
+export const deleteCashFlow = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const organizationId = req.user.organizationId;
+    
+    const [result] = await pool.query(
+      'DELETE FROM cashflow WHERE id = ? AND organization_id = ?',
+      [id, organizationId]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Registro no encontrado'
+      });
+    }
+    
+    res.json({ success: true, message: 'Registro eliminado exitosamente' });
+  } catch (error) {
+    console.error('[CashFlow] Error deleting:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+// Funciones adicionales requeridas por las rutas
+
 export const getCashFlowData = async (req, res) => {
   try {
-    console.log('🔄 Getting cash flow data with filters:', req.query);
-    
-    // Procesar filtros
-    const {
-      period_type = 'monthly',
-      year = new Date().getFullYear().toString(),
-      project_id,
-      cost_center_id,
-      category_id,
-      state,
-      type = 'all'
-    } = req.query;
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
 
-    const filters = {
-      period_type,
-      year: parseInt(year),
-      project_id: project_id && project_id !== 'all' ? parseInt(project_id) : null,
-      cost_center_id: cost_center_id && cost_center_id !== 'all' ? parseInt(cost_center_id) : null,
-      category_id: category_id && category_id !== 'all' ? parseInt(category_id) : null,
-      state: state && state !== 'all' ? state : null,
-      type: type && type !== 'all' ? type : null
-    };
+    const { startDate, endDate, type, projectId } = req.query;
+    let query = 'SELECT * FROM cashflow WHERE organization_id = ?';
+    const params = [organizationId];
 
-    // 1. Obtener resumen
-    const summary = await cashFlowModel.getSummary(filters);
-    
-    // 2. Obtener movimientos recientes (últimos 10)
-    const recentItems = await cashFlowModel.getRecentItems(filters, 10);
-    
-    // 3. Obtener datos por categoría
-    const byCategoryData = await cashFlowModel.getByCategory(filters);
-    
-    // 4. Obtener categorías vacías
-    const emptyCategoriesData = await cashFlowModel.getEmptyCategories(filters);
-    
-    // 5. Obtener datos para gráfico (últimas 12 semanas/meses)
-    const chartData = await cashFlowModel.getChartData(filters);
+    if (startDate) {
+      query += ' AND date >= ?';
+      params.push(startDate);
+    }
+    if (endDate) {
+      query += ' AND date <= ?';
+      params.push(endDate);
+    }
+    if (type) {
+      query += ' AND type = ?';
+      params.push(type);
+    }
+    if (projectId) {
+      query += ' AND project_id = ?';
+      params.push(projectId);
+    }
 
-    const responseData = {
-      summary: {
-        totalIncome: summary.total_income || 0,
-        totalExpense: summary.total_expense || 0,
-        netCashFlow: (summary.total_income || 0) - (summary.total_expense || 0),
-        forecastIncome: summary.forecast_income || 0,
-        forecastExpense: summary.forecast_expense || 0,
-        actualIncome: summary.actual_income || 0,
-        actualExpense: summary.actual_expense || 0,
-        pendingItems: summary.pending_items || 0,
-        totalItems: summary.total_items || 0,
-        previousPeriodChange: summary.previous_period_change || 0
-      },
-      recentItems: recentItems.map(item => ({
-        id: item.id,
-        name: item.name,
-        category_name: item.category_name,
-        planned_date: item.planned_date,
-        actual_date: item.actual_date,
-        amount: parseFloat(item.amount),
-        state: item.state,
-        type: item.type,
-        cost_center_name: item.cost_center_name,
-        notes: item.notes
-      })),
-      byCategoryData: byCategoryData.map(category => ({
-        category_id: category.category_id,
-        category_name: category.category_name,
-        category_type: category.category_type,
-        income_amount: parseFloat(category.income_amount || 0),
-        expense_amount: parseFloat(category.expense_amount || 0),
-        net_amount: parseFloat(category.net_amount || 0),
-        items_count: category.items_count || 0,
-        path: `/cash-flow/categories/${category.category_id}`
-      })),
-      emptyCategoriesData: emptyCategoriesData.map(category => ({
-        category_id: category.category_id,
-        category_name: category.category_name,
-        category_type: category.category_type,
-        income_amount: 0,
-        expense_amount: 0,
-        net_amount: 0,
-        items_count: 0,
-        path: `/cash-flow/categories/${category.category_id}`
-      })),
-      chartData: chartData.map(period => ({
-        name: period.period_name,
-        income: parseFloat(period.income || 0),
-        expense: parseFloat(period.expense || 0),
-        balance: parseFloat(period.balance || 0),
-        forecast_income: parseFloat(period.forecast_income || 0),
-        forecast_expense: parseFloat(period.forecast_expense || 0),
-        actual_income: parseFloat(period.actual_income || 0),
-        actual_expense: parseFloat(period.actual_expense || 0)
-      }))
-    };
-
-    console.log('✅ Cash flow data processed successfully');
-    res.json({
-      success: true,
-      data: responseData
-    });
+    query += ' ORDER BY date DESC';
+    const [data] = await pool.query(query, params);
+    res.json({ success: true, data, organization_id: organizationId });
   } catch (error) {
-    console.error('❌ Error in getCashFlowData:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener datos de flujo de caja',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==========================================
-// OBTENER DATOS POR PERÍODO
-// ==========================================
-
-/**
- * GET /api/cash-flow/by-period
- * Obtener datos de flujo de caja agrupados por período para tabla financiera
- */
 export const getCashFlowByPeriod = async (req, res) => {
   try {
-    console.log('📊 Getting cash flow by period with filters:', req.query);
-    
-    const {
-      period_type = 'monthly',
-      year = new Date().getFullYear().toString(),
-      project_id,
-      cost_center_id,
-      category_id,
-      state,
-      type = 'all'
-    } = req.query;
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
 
-    const filters = {
-      period_type,
-      year: parseInt(year),
-      project_id: project_id && project_id !== 'all' ? parseInt(project_id) : null,
-      cost_center_id: cost_center_id && cost_center_id !== 'all' ? parseInt(cost_center_id) : null,
-      category_id: category_id && category_id !== 'all' ? parseInt(category_id) : null,
-      state: state && state !== 'all' ? state : null,
-      type: type && type !== 'all' ? type : null
-    };
-
-    // Obtener datos por período desde el modelo
-    const periodData = await cashFlowModel.getByPeriod(filters);
-
-    const responseData = periodData.map(period => ({
-      name: period.period_name,
-      income: parseFloat(period.income || 0),
-      expense: parseFloat(period.expense || 0),
-      balance: parseFloat(period.balance || 0),
-      forecast_income: parseFloat(period.forecast_income || 0),
-      forecast_expense: parseFloat(period.forecast_expense || 0),
-      actual_income: parseFloat(period.actual_income || 0),
-      actual_expense: parseFloat(period.actual_expense || 0)
-    }));
-
-    console.log('✅ Period data processed successfully:', responseData.length, 'periods');
-    res.json({
-      success: true,
-      data: responseData
-    });
+    const [data] = await pool.query(
+      `SELECT DATE_FORMAT(date, '%Y-%m') as period, type, SUM(amount) as total
+       FROM cashflow 
+       WHERE organization_id = ?
+       GROUP BY period, type
+       ORDER BY period DESC`,
+      [organizationId]
+    );
+    res.json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error in getCashFlowByPeriod:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener datos por período',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==========================================
-// OBTENER OPCIONES PARA FILTROS
-// ==========================================
-
-/**
- * GET /api/cash-flow/filter-options
- * Obtener opciones disponibles para los filtros
- */
 export const getFilterOptions = async (req, res) => {
   try {
-    console.log('🔄 Getting filter options...');
-    
-    // Obtener proyectos (centros de costo tipo 'project')
-    const projects = await cashFlowModel.getProjects();
-    
-    // Obtener centros de costo
-    const costCenters = await cashFlowModel.getCostCenters();
-    
-    // Obtener categorías
-    const categories = await cashFlowModel.getCategories();
-    
-    // Estados disponibles
-    const states = [
-      { value: 'forecast', label: 'Presupuestado' },
-      { value: 'actual', label: 'Real' },
-      { value: 'budget', label: 'Presupuesto' }
-    ];
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
 
-    const responseData = {
-      projects: projects.map(project => ({
-        value: project.id.toString(),
-        label: project.name
-      })),
-      costCenters: costCenters.map(center => ({
-        value: center.id.toString(),
-        label: center.name
-      })),
-      categories: categories.map(category => ({
-        value: category.id.toString(),
-        label: category.name
-      })),
-      states: states
-    };
-
-    console.log('✅ Filter options processed successfully');
-    res.json({
-      success: true,
-      data: responseData
+    const [projects] = await pool.query(
+      'SELECT id, name FROM projects WHERE organization_id = ?',
+      [organizationId]
+    );
+    
+    res.json({ 
+      success: true, 
+      data: {
+        projects,
+        types: ['income', 'expense'],
+        categories: []
+      }
     });
   } catch (error) {
-    console.error('❌ Error in getFilterOptions:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener opciones de filtros',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==========================================
-// RESUMEN DEL FLUJO DE CAJA
-// ==========================================
-
-/**
- * GET /api/cash-flow/summary
- * Obtener resumen del flujo de caja
- */
 export const getSummary = async (req, res) => {
   try {
-    const filters = {
-      project_id: req.query.project_id ? parseInt(req.query.project_id) : null,
-      cost_center_id: req.query.cost_center_id ? parseInt(req.query.cost_center_id) : null,
-      year: req.query.year ? parseInt(req.query.year) : new Date().getFullYear(),
-      type: req.query.type || null
-    };
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
 
-    const summary = await cashFlowModel.getSummary(filters);
-
-    const responseData = {
-      totalIncome: summary.total_income || 0,
-      totalExpense: summary.total_expense || 0,
-      netCashFlow: (summary.total_income || 0) - (summary.total_expense || 0),
-      forecastIncome: summary.forecast_income || 0,
-      forecastExpense: summary.forecast_expense || 0,
-      actualIncome: summary.actual_income || 0,
-      actualExpense: summary.actual_expense || 0,
-      pendingItems: summary.pending_items || 0,
-      totalItems: summary.total_items || 0,
-      previousPeriodChange: summary.previous_period_change || 0
-    };
-
-    res.json({
-      success: true,
-      data: responseData
-    });
+    const [summary] = await pool.query(
+      `SELECT 
+        type,
+        COUNT(*) as count,
+        SUM(amount) as total
+       FROM cashflow 
+       WHERE organization_id = ?
+       GROUP BY type`,
+      [organizationId]
+    );
+    res.json({ success: true, data: summary });
   } catch (error) {
-    console.error('❌ Error in getSummary:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener resumen',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==========================================
-// CRUD OPERACIONES (mantener existentes)
-// ==========================================
-
-/**
- * GET /api/cash-flow/categories
- * Obtener categorías de flujo de caja
- */
 export const getCategories = async (req, res) => {
   try {
-    const categories = await cashFlowModel.getCategories();
-    
-    res.json({
-      success: true,
-      data: categories
-    });
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
+
+    // Por ahora retornamos categorías vacías, puedes crear tabla después
+    res.json({ success: true, data: [] });
   } catch (error) {
-    console.error('❌ Error getting categories:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener categorías',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * POST /api/cash-flow/categories
- * Crear una nueva categoría
- */
 export const createCategory = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Datos de entrada inválidos',
-        errors: errors.array()
-      });
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
     }
 
-    const categoryId = await cashFlowModel.createCategory(req.body);
-    
-    res.status(201).json({
-      success: true,
-      data: { id: categoryId },
-      message: 'Categoría creada exitosamente'
+    res.status(201).json({ 
+      success: true, 
+      message: 'Categoría creada (funcionalidad pendiente)' 
     });
   } catch (error) {
-    console.error('❌ Error creating category:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear categoría',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * PUT /api/cash-flow/categories/:id
- * Actualizar una categoría
- */
 export const updateCategory = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Datos de entrada inválidos',
-        errors: errors.array()
-      });
+    const organizationId = req.user.organizationId;
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
     }
 
-    const { id } = req.params;
-    const updated = await cashFlowModel.updateCategory(id, req.body);
-    
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        message: 'Categoría no encontrada'
-      });
-    }
-
-    res.json({
-      success: true,
-      message: 'Categoría actualizada exitosamente'
-    });
+    res.json({ success: true, message: 'Categoría actualizada (funcionalidad pendiente)' });
   } catch (error) {
-    console.error('❌ Error updating category:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar categoría',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * POST /api/cash-flow/lines
- * Crear una nueva línea de flujo de caja
- */
 export const createCashFlowLine = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Datos de entrada inválidos',
-        errors: errors.array()
-      });
+    const organizationId = req.user.organizationId;
+    const { name, category_id, type, planned_date, amount, notes } = req.body;
+    
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
     }
 
-    const lineId = await cashFlowModel.createLine(req.body);
+    const [result] = await pool.query(
+      `INSERT INTO cashflow 
+       (organization_id, type, category, amount, description, date, created_by) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [organizationId, type, category_id, amount, notes || name, planned_date, req.user.id]
+    );
     
-    res.status(201).json({
-      success: true,
-      data: { id: lineId },
-      message: 'Línea de flujo de caja creada exitosamente'
+    res.status(201).json({ 
+      success: true, 
+      data: { id: result.insertId, organization_id: organizationId }
     });
   } catch (error) {
-    console.error('❌ Error creating cash flow line:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear línea de flujo de caja',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * PUT /api/cash-flow/lines/:id
- * Actualizar una línea de flujo de caja
- */
 export const updateCashFlowLine = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Datos de entrada inválidos',
-        errors: errors.array()
-      });
-    }
-
     const { id } = req.params;
-    const updated = await cashFlowModel.updateLine(id, req.body);
+    const organizationId = req.user.organizationId;
     
-    if (!updated) {
-      return res.status(404).json({
-        success: false,
-        message: 'Línea de flujo de caja no encontrada'
-      });
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
     }
 
-    res.json({
-      success: true,
-      message: 'Línea de flujo de caja actualizada exitosamente'
-    });
+    const { name, amount, planned_date } = req.body;
+    
+    await pool.query(
+      'UPDATE cashflow SET description = ?, amount = ?, date = ? WHERE id = ? AND organization_id = ?',
+      [name, amount, planned_date, id, organizationId]
+    );
+    
+    res.json({ success: true, message: 'Línea actualizada' });
   } catch (error) {
-    console.error('❌ Error updating cash flow line:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al actualizar línea de flujo de caja',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * DELETE /api/cash-flow/lines/:id
- * Eliminar una línea de flujo de caja
- */
 export const deleteCashFlowLine = async (req, res) => {
   try {
     const { id } = req.params;
-    const deleted = await cashFlowModel.deleteLine(id);
+    const organizationId = req.user.organizationId;
     
-    if (!deleted) {
-      return res.status(404).json({
-        success: false,
-        message: 'Línea de flujo de caja no encontrada'
-      });
+    const [result] = await pool.query(
+      'DELETE FROM cashflow WHERE id = ? AND organization_id = ?',
+      [id, organizationId]
+    );
+    
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ success: false, message: 'Línea no encontrada' });
     }
-
-    res.json({
-      success: true,
-      message: 'Línea de flujo de caja eliminada exitosamente'
-    });
+    
+    res.json({ success: true, message: 'Línea eliminada' });
   } catch (error) {
-    console.error('❌ Error deleting cash flow line:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al eliminar línea de flujo de caja',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-// ==========================================
-// OBTENER FLUJO DE CAJA DE UN PROYECTO
-// ==========================================
-
-/**
- * GET /api/projects/:projectId/cash-flow
- * Obtener flujo de caja de un proyecto específico
- */
 export const getProjectCashFlow = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const filters = {
-      type: req.query.type,
-      state: req.query.state,
-      from_date: req.query.from_date,
-      to_date: req.query.to_date
-    };
-
-    const cashFlowLines = await cashFlowModel.getProjectCashFlow(projectId, filters);
+    const organizationId = req.user.organizationId;
     
-    res.json({
-      success: true,
-      data: cashFlowLines
-    });
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
+
+    const [data] = await pool.query(
+      'SELECT * FROM cashflow WHERE project_id = ? AND organization_id = ? ORDER BY date DESC',
+      [projectId, organizationId]
+    );
+    
+    res.json({ success: true, data });
   } catch (error) {
-    console.error('❌ Error getting project cash flow:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener flujo de caja del proyecto',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * GET /api/projects/:projectId/cash-flow/summary
- * Obtener resumen del flujo de caja de un proyecto
- */
 export const getCashFlowSummary = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const summary = await cashFlowModel.getCashFlowSummary(projectId);
+    const organizationId = req.user.organizationId;
     
-    res.json({
-      success: true,
-      data: summary
-    });
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
+    }
+
+    const [summary] = await pool.query(
+      `SELECT type, COUNT(*) as count, SUM(amount) as total
+       FROM cashflow 
+       WHERE project_id = ? AND organization_id = ?
+       GROUP BY type`,
+      [projectId, organizationId]
+    );
+    
+    res.json({ success: true, data: summary });
   } catch (error) {
-    console.error('❌ Error getting cash flow summary:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al obtener resumen del flujo de caja',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * POST /api/projects/:projectId/incomes
- * Crear un nuevo ingreso para un proyecto (compatibilidad)
- */
 export const createIncome = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Datos de entrada inválidos',
-        errors: errors.array()
-      });
+    const { projectId } = req.params;
+    const organizationId = req.user.organizationId;
+    const { name, amount, planned_date } = req.body;
+    
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
     }
 
-    const { projectId } = req.params;
-    const incomeData = {
-      ...req.body,
-      cost_center_id: parseInt(projectId),
-      type: 'income'
-    };
-
-    const lineId = await cashFlowModel.createLine(incomeData);
+    const [result] = await pool.query(
+      `INSERT INTO cashflow 
+       (organization_id, project_id, type, description, amount, date, created_by) 
+       VALUES (?, ?, 'income', ?, ?, ?, ?)`,
+      [organizationId, projectId, name, amount, planned_date, req.user.id]
+    );
     
-    res.status(201).json({
-      success: true,
-      data: { id: lineId },
-      message: 'Ingreso creado exitosamente'
+    res.status(201).json({ 
+      success: true, 
+      data: { id: result.insertId, organization_id: organizationId }
     });
   } catch (error) {
-    console.error('❌ Error creating income:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear ingreso',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
-/**
- * POST /api/projects/:projectId/expenses
- * Crear un nuevo gasto para un proyecto (compatibilidad)
- */
 export const createExpense = async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Datos de entrada inválidos',
-        errors: errors.array()
-      });
+    const { projectId } = req.params;
+    const organizationId = req.user.organizationId;
+    const { name, amount, planned_date } = req.body;
+    
+    if (!organizationId) {
+      return res.status(400).json({ success: false, message: 'No se encontró organización' });
     }
 
-    const { projectId } = req.params;
-    const expenseData = {
-      ...req.body,
-      cost_center_id: parseInt(projectId),
-      type: 'expense'
-    };
-
-    const lineId = await cashFlowModel.createLine(expenseData);
+    const [result] = await pool.query(
+      `INSERT INTO cashflow 
+       (organization_id, project_id, type, description, amount, date, created_by) 
+       VALUES (?, ?, 'expense', ?, ?, ?, ?)`,
+      [organizationId, projectId, name, amount, planned_date, req.user.id]
+    );
     
-    res.status(201).json({
-      success: true,
-      data: { id: lineId },
-      message: 'Gasto creado exitosamente'
+    res.status(201).json({ 
+      success: true, 
+      data: { id: result.insertId, organization_id: organizationId }
     });
   } catch (error) {
-    console.error('❌ Error creating expense:', error.message);
-    res.status(500).json({
-      success: false,
-      message: 'Error al crear gasto',
-      error: error.message
-    });
+    console.error('[CashFlow] Error:', error);
+    res.status(500).json({ success: false, message: error.message });
   }
-};
-
-// Exportar como default para mantener compatibilidad
-export default {
-  getCashFlowData,
-  getCashFlowByPeriod,
-  getFilterOptions,
-  getSummary,
-  getCategories,
-  createCategory,
-  updateCategory,
-  createCashFlowLine,
-  updateCashFlowLine,
-  deleteCashFlowLine,
-  getProjectCashFlow,
-  getCashFlowSummary,
-  createIncome,
-  createExpense
 };

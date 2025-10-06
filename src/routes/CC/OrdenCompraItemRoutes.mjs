@@ -1,7 +1,7 @@
 // src/routes/CC/OrdenCompraItemRoutes.mjs
 import { Router } from 'express';
 import { body, param } from 'express-validator';
-import { authenticate } from '../../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../../middleware/clerkAuth.mjs';
 import { pool } from '../../config/database.mjs';
 import * as itemModel from '../../models/CC/ordenCompraItemModel.mjs';
 import * as ordenCompraModel from '../../models/CC/ordenCompraModel.mjs';

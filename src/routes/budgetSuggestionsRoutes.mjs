@@ -1,7 +1,7 @@
 // src/routes/budgetSuggestionsRoutes.mjs - VERSIÓN LIMPIA Y CORREGIDA
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../middleware/clerkAuth.mjs';
 import budgetController from '../controllers/budgetSuggestionsController.mjs';
 import { 
   uploadPdfForAnalysis, 

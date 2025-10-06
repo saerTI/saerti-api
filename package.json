@@ -8,10 +8,13 @@
     "start": "node server.mjs",
     "dev": "nodemon server.mjs",
     "setup": "node scripts/setup.mjs",
-    "setup_db:force": "node scripts/setup.mjs --force"
+    "setup_db:force": "node scripts/setup.mjs --force",
+    "setup:clerk": "node scripts/setup-clerk.mjs",
+    "db:reset": "node scripts/setup-clerk.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",
+    "@clerk/clerk-sdk-node": "^4.13.23",
     "@types/multer": "^2.0.0",
     "bcrypt": "^5.1.1",
     "canvas": "^3.1.2",

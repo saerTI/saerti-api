@@ -1,7 +1,7 @@
 // src/routes/CC/incomeRoutes.mjs
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { authenticate } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../middleware/clerkAuth.mjs';
 import { 
   getIncomes,
   getIncomeById,

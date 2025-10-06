@@ -1,7 +1,7 @@
 // src/routes/factoringRoutes.mjs
 import express from 'express';
 import { body, validationResult } from 'express-validator';
-import { authenticate } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../middleware/clerkAuth.mjs';
 import {
   getAllFactorings,
   createFactoring,

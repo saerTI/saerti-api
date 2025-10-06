@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
-import { authenticate } from '../../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../../middleware/clerkAuth.mjs';
 import previsionalController from '../../controllers/CC/previsionalController.mjs';
 
 const router = Router();

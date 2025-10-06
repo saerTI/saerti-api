@@ -2,7 +2,7 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import userController from '../controllers/userController.mjs';
-import { authenticate, authorize } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate, authorize } from '../middleware/clerkAuth.mjs';
 
 const router = Router();
 

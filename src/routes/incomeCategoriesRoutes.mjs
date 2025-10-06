@@ -1,7 +1,7 @@
 // src/routes/incomeCategoriesRoutes.mjs
 import express from 'express';
 import * as incomeCategoriesController from '../controllers/incomeCategoriesController.mjs';
-import { authenticate } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../middleware/clerkAuth.mjs';
 
 const router = express.Router();
 

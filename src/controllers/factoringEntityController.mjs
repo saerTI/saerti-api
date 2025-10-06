@@ -1,67 +1,79 @@
 // src/controllers/factoringEntityController.mjs
-import FactoringEntityModel from '../models/factoringEntityModel.mjs';
+import { pool } from '../config/database.mjs';
 
 /**
- * Obtiene todas las entidades de factoring
- * @param {Object} req - Request object
- * @param {Object} res - Response object
+ * GET /api/factoring-entities
+ * Obtener todas las entidades de factoring (filtrado por organización)
  */
 export const getAllFactoringEntities = async (req, res) => {
   try {
-    const entities = await FactoringEntityModel.getAll();
+    // 🏢 Multi-tenancy: Filtrar por organización
+    const organizationId = req.user.organizationId;
+    
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'No se encontró organización para el usuario'
+      });
+    }
 
-    res.status(200).json({
-      success: true,
-      data: entities
+    const [entities] = await pool.query(
+      'SELECT * FROM factoring_entities WHERE organization_id = ? ORDER BY created_at DESC',
+      [organizationId]
+    );
+    
+    res.json({ 
+      success: true, 
+      data: entities,
+      count: entities.length,
+      organization_id: organizationId
     });
   } catch (error) {
-    console.error('Error in getAllFactoringEntities:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
+    console.error('[Factoring Entities] Error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al obtener entidades de factoring',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };
 
 /**
- * Crea una nueva entidad de factoring
- * @param {Object} req - Request object
- * @param {Object} res - Response object
+ * POST /api/factoring-entities
+ * Crear nueva entidad de factoring
  */
 export const createFactoringEntity = async (req, res) => {
   try {
     const { name } = req.body;
-
-    if (!name || name.trim() === '') {
+    const organizationId = req.user.organizationId;
+    
+    if (!organizationId) {
       return res.status(400).json({
         success: false,
-        message: 'El nombre de la entidad es requerido'
+        message: 'No se encontró organización para el usuario'
       });
     }
 
-    // Verificar si ya existe una entidad con ese nombre
-    const existingEntity = await FactoringEntityModel.getByName(name);
-    if (existingEntity) {
-      return res.status(400).json({
-        success: false,
-        message: 'Ya existe una entidad de factoring con ese nombre'
-      });
-    }
-
-    const newEntity = await FactoringEntityModel.create({ name });
-
-    res.status(201).json({
-      success: true,
-      message: 'Entidad de factoring creada exitosamente',
-      data: newEntity
+    const [result] = await pool.query(
+      'INSERT INTO factoring_entities (organization_id, name, created_at) VALUES (?, ?, NOW())',
+      [organizationId, name]
+    );
+    
+    res.status(201).json({ 
+      success: true, 
+      data: {
+        id: result.insertId,
+        organization_id: organizationId,
+        name
+      },
+      message: 'Entidad de factoring creada exitosamente'
     });
   } catch (error) {
-    console.error('Error in createFactoringEntity:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Error interno del servidor',
-      error: error.message
+    console.error('[Factoring Entities] Error creating:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error al crear entidad de factoring',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

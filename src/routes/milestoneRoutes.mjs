@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
 import milestoneController from '../controllers/milestoneController.mjs';
-import { authenticate } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../middleware/clerkAuth.mjs';
 
 const router = Router();
 

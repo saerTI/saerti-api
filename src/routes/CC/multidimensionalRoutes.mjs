@@ -1,6 +1,6 @@
 // src/routes/CC/multidimensionalRoutes.mjs
 import { Router } from 'express';
-import { authenticate } from '../../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../../middleware/clerkAuth.mjs';
 import { 
   exploreCosts,
   getCostsDimensions,

@@ -1,7 +1,7 @@
 // src/routes/accountCategoryRoutes.mjs
 import express from 'express';
 import * as accountCategoryController from '../controllers/accountCategoryController.mjs';
-import { authenticate } from '../middleware/auth.mjs';
+import { clerkAuth as authenticate } from '../middleware/clerkAuth.mjs';
 
 const router = express.Router();
 
