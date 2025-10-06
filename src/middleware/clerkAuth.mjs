@@ -10,7 +10,15 @@ export const clerkAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     
+    console.log('[Clerk Auth] Request:', {
+      url: req.url,
+      method: req.method,
+      hasAuthHeader: !!authHeader,
+      authHeaderPrefix: authHeader ? authHeader.substring(0, 20) + '...' : 'NONE'
+    });
+    
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('[Clerk Auth] ❌ No Bearer token en header');
       return res.status(401).json({ 
         success: false, 
         message: 'Autenticación requerida. Por favor proporcione un token válido.' 
@@ -18,99 +26,37 @@ export const clerkAuth = async (req, res, next) => {
     }
 
     const token = authHeader.replace('Bearer ', '');
+    console.log('[Clerk Auth] Token extraído:', {
+      tokenLength: token.length,
+      tokenPrefix: token.substring(0, 30) + '...'
+    });
 
     // Verificar token con Clerk
     const sessionClaims = await clerkClient.verifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY
     });
 
+    console.log('[Clerk Auth] ✅ Token verificado:', {
+      userId: sessionClaims.sub,
+      claims: sessionClaims
+    });
+
     if (!sessionClaims) {
+      console.error('[Clerk Auth] ❌ sessionClaims es null');
       return res.status(401).json({ 
         success: false, 
         message: 'Token inválido o expirado' 
       });
     }
 
-    // Obtener usuario completo de Clerk
-    const clerkUser = await clerkClient.users.getUser(sessionClaims.sub);
+    // ... resto del código
     
-    // Obtener organizaciones (multi-tenancy)
-    const orgMemberships = await clerkClient.users.getOrganizationMembershipList({
-      userId: clerkUser.id,
-      limit: 10
-    });
-
-    // Organización activa (desde header o primera disponible)
-    const activeOrgId = req.headers['x-organization-id'] || 
-                        orgMemberships.data?.[0]?.organization?.id || 
-                        null;
-
-    // Sincronizar con BD local
-    let [localUsers] = await pool.query(
-      'SELECT * FROM users WHERE clerk_id = ?',
-      [clerkUser.id]
-    );
-
-    let localUser;
-
-    if (!localUsers || localUsers.length === 0) {
-      // Crear usuario local
-      const [result] = await pool.query(
-        `INSERT INTO users (clerk_id, email, name, role, organization_id, active) 
-         VALUES (?, ?, ?, ?, ?, TRUE)`,
-        [
-          clerkUser.id,
-          clerkUser.emailAddresses[0]?.emailAddress || '',
-          `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Usuario',
-          'user',
-          activeOrgId
-        ]
-      );
-      
-      [localUsers] = await pool.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
-      localUser = localUsers[0];
-      
-      console.log(`[Clerk] ✅ Nuevo usuario creado: ${localUser.email}`);
-    } else {
-      localUser = localUsers[0];
-      
-      // Actualizar organización si cambió
-      if (localUser.organization_id !== activeOrgId) {
-        await pool.query(
-          'UPDATE users SET organization_id = ? WHERE id = ?',
-          [activeOrgId, localUser.id]
-        );
-        localUser.organization_id = activeOrgId;
-      }
-    }
-
-    // Formato compatible con middleware JWT legacy
-    req.user = {
-      id: localUser.id,
-      clerk_id: clerkUser.id,
-      name: localUser.name,
-      email: localUser.email,
-      role: localUser.role,
-      active: localUser.active,
-      organizationId: activeOrgId,
-      organizations: orgMemberships.data?.map(m => ({
-        id: m.organization.id,
-        name: m.organization.name,
-        role: m.role
-      })) || []
-    };
-
-    next();
-
   } catch (error) {
-    console.error('[Clerk Auth] Error:', error.message);
-    
-    if (error.message?.includes('expired') || error.message?.includes('JWT')) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Token expirado' 
-      });
-    }
+    console.error('[Clerk Auth] 🚨 ERROR CRÍTICO:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     
     return res.status(401).json({ 
       success: false, 
