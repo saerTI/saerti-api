@@ -125,10 +125,32 @@ async function getAll(filters = {}, pagination = {}) {
     
     // Soporte para el filtro period legacy (formato MM/YYYY)
     if (filters.period) {
-      const [month, year] = filters.period.split('/');
-      if (month && year) {
-        query += ' AND p.month_period = ? AND p.year_period = ?';
-        queryParams.push(parseInt(month), parseInt(year));
+      const periods = Array.isArray(filters.period) ? filters.period : [filters.period];
+      
+      if (periods.length > 0) {
+        const periodConditions = [];
+        
+        periods.forEach(period => {
+          if (typeof period === 'string' && period.includes('/')) {
+            // Formato MM/YYYY
+            const [month, year] = period.split('/');
+            if (month && year) {
+              periodConditions.push('(p.month_period = ? AND p.year_period = ?)');
+              queryParams.push(parseInt(month), parseInt(year));
+            }
+          } else if (typeof period === 'string' && period.includes('-')) {
+            // Formato YYYY-MM
+            const [year, month] = period.split('-');
+            if (month && year) {
+              periodConditions.push('(p.month_period = ? AND p.year_period = ?)');
+              queryParams.push(parseInt(month), parseInt(year));
+            }
+          }
+        });
+        
+        if (periodConditions.length > 0) {
+          query += ` AND (${periodConditions.join(' OR ')})`;
+        }
       }
     }
     
@@ -421,12 +443,34 @@ async function getStats(filters = {}) {
       queryParams.push(filters.year);
     }
     
-    // Soporte para filtro period legacy
+    // ✅ FIX: Soporte para filtro period (puede ser array o string)
     if (filters.period) {
-      const [month, year] = filters.period.split('/');
-      if (month && year) {
-        query += ' AND p.month_period = ? AND p.year_period = ?';
-        queryParams.push(parseInt(month), parseInt(year));
+      const periods = Array.isArray(filters.period) ? filters.period : [filters.period];
+      
+      if (periods.length > 0) {
+        const periodConditions = [];
+        
+        periods.forEach(period => {
+          if (typeof period === 'string' && period.includes('/')) {
+            // Formato MM/YYYY
+            const [month, year] = period.split('/');
+            if (month && year) {
+              periodConditions.push('(p.month_period = ? AND p.year_period = ?)');
+              queryParams.push(parseInt(month), parseInt(year));
+            }
+          } else if (typeof period === 'string' && period.includes('-')) {
+            // Formato YYYY-MM
+            const [year, month] = period.split('-');
+            if (month && year) {
+              periodConditions.push('(p.month_period = ? AND p.year_period = ?)');
+              queryParams.push(parseInt(month), parseInt(year));
+            }
+          }
+        });
+        
+        if (periodConditions.length > 0) {
+          query += ` AND (${periodConditions.join(' OR ')})`;
+        }
       }
     }
     
