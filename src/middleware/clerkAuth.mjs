@@ -10,58 +10,88 @@ export const clerkAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     
-    console.log('[Clerk Auth] Request:', {
-      url: req.url,
-      method: req.method,
-      hasAuthHeader: !!authHeader,
-      authHeaderPrefix: authHeader ? authHeader.substring(0, 20) + '...' : 'NONE'
-    });
-    
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.error('[Clerk Auth] ❌ No Bearer token en header');
       return res.status(401).json({ 
         success: false, 
-        message: 'Autenticación requerida. Por favor proporcione un token válido.' 
+        message: 'Autenticación requerida' 
       });
     }
 
     const token = authHeader.replace('Bearer ', '');
-    console.log('[Clerk Auth] Token extraído:', {
-      tokenLength: token.length,
-      tokenPrefix: token.substring(0, 30) + '...'
-    });
 
     // Verificar token con Clerk
     const sessionClaims = await clerkClient.verifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY
     });
 
-    console.log('[Clerk Auth] ✅ Token verificado:', {
-      userId: sessionClaims.sub,
-      claims: sessionClaims
-    });
-
     if (!sessionClaims) {
-      console.error('[Clerk Auth] ❌ sessionClaims es null');
       return res.status(401).json({ 
         success: false, 
         message: 'Token inválido o expirado' 
       });
     }
 
-    // ... resto del código
-    
+    // Obtener usuario de Clerk
+    let clerkUser, clerkEmail, clerkName;
+    try {
+      clerkUser = await clerkClient.users.getUser(sessionClaims.sub);
+      clerkEmail = clerkUser.emailAddresses[0]?.emailAddress || null;
+      clerkName = `${clerkUser.firstName || ''} ${clerkUser.lastName || ''}`.trim() || 'Usuario';
+    } catch (userError) {
+      console.warn('[Clerk Auth] ⚠️ Usando claims del token');
+      clerkEmail = sessionClaims.email || null;
+      clerkName = 'Usuario';
+    }
+
+    // Sincronizar con BD local (con manejo de race conditions)
+    let [localUsers] = await pool.query(
+      'SELECT * FROM users WHERE clerk_id = ?',
+      [sessionClaims.sub]
+    );
+
+    let localUser;
+
+    if (!localUsers || localUsers.length === 0) {
+      try {
+        const [result] = await pool.query(
+          `INSERT IGNORE INTO users (clerk_id, email, name, role, active) 
+           VALUES (?, ?, ?, ?, TRUE)`,
+          [sessionClaims.sub, clerkEmail || 'sin-email@temp.com', clerkName, 'user']
+        );
+        
+        if (result.insertId === 0) {
+          [localUsers] = await pool.query('SELECT * FROM users WHERE clerk_id = ?', [sessionClaims.sub]);
+        } else {
+          [localUsers] = await pool.query('SELECT * FROM users WHERE id = ?', [result.insertId]);
+        }
+        localUser = localUsers[0];
+      } catch (insertError) {
+        [localUsers] = await pool.query('SELECT * FROM users WHERE clerk_id = ?', [sessionClaims.sub]);
+        if (!localUsers?.[0]) throw new Error('No se pudo crear el usuario');
+        localUser = localUsers[0];
+      }
+    } else {
+      localUser = localUsers[0];
+    }
+
+    req.user = {
+      id: localUser.id,
+      clerk_id: sessionClaims.sub,
+      name: localUser.name,
+      email: localUser.email,
+      role: localUser.role,
+      active: localUser.active,
+      organizationId: null,
+      organizations: []
+    };
+
+    next();
+
   } catch (error) {
-    console.error('[Clerk Auth] 🚨 ERROR CRÍTICO:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    
+    console.error('[Clerk Auth] Error:', error.message);
     return res.status(401).json({ 
       success: false, 
-      message: 'Error de autenticación',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: 'Error de autenticación'
     });
   }
 };
