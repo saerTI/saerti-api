@@ -721,6 +721,85 @@ async function createProjectsTable() {
   console.log('✅ Tabla projects creada (multi-tenant)');
 }
 
+async function createBudgetAnalysesTable() {
+  const exists = await checkTableExists('budget_analyses');
+  if (exists) {
+    console.log('ℹ️ Tabla budget_analyses ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS budget_analyses (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      
+      -- Identificación única y tenant
+      analysis_id VARCHAR(100) UNIQUE NOT NULL COMMENT 'ID único del análisis',
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci COMMENT 'Clerk organization ID',
+      user_id BIGINT UNSIGNED NOT NULL COMMENT 'Usuario que realizó el análisis',
+      clerk_user_id VARCHAR(255) COLLATE utf8mb4_unicode_ci COMMENT 'Clerk user ID',
+      
+      -- Tipo de análisis
+      analysis_type ENUM('quick', 'pdf', 'project') NOT NULL DEFAULT 'quick',
+      
+      -- Información del archivo (para análisis PDF)
+      file_name VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      file_size INT UNSIGNED DEFAULT NULL COMMENT 'Tamaño en bytes',
+      
+      -- Datos del proyecto analizado
+      project_type VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT 'Proyecto General',
+      location VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT 'Chile',
+      area_m2 DECIMAL(10,2) DEFAULT NULL,
+      
+      -- Resultados del análisis
+      estimated_budget DECIMAL(15,2) NOT NULL DEFAULT 0 COMMENT 'Presupuesto estimado en CLP',
+      confidence_score INT UNSIGNED DEFAULT 75 COMMENT 'Score de confianza 0-100',
+      
+      -- Resumen corto (para listados)
+      summary TEXT COLLATE utf8mb4_unicode_ci,
+      
+      -- Análisis completo (JSON)
+      full_analysis JSON NOT NULL COMMENT 'Análisis completo en formato JSON',
+      
+      -- Datos del proyecto original (JSON)
+      project_data JSON DEFAULT NULL,
+      
+      -- Metadatos del análisis (JSON)
+      metadata JSON DEFAULT NULL COMMENT 'analysis_depth, api_cost, processing_time, etc',
+      
+      -- Relación con proyecto (opcional)
+      project_id BIGINT UNSIGNED DEFAULT NULL,
+      cost_center_id BIGINT UNSIGNED DEFAULT NULL,
+      
+      -- Control
+      active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      
+      -- Foreign Keys
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+      FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
+      
+      -- Índices para búsquedas rápidas
+      INDEX idx_analysis_id (analysis_id),
+      INDEX idx_organization (organization_id),
+      INDEX idx_user (user_id),
+      INDEX idx_clerk_user (clerk_user_id),
+      INDEX idx_analysis_type (analysis_type),
+      INDEX idx_created_at (created_at DESC),
+      INDEX idx_user_created (user_id, created_at DESC),
+      INDEX idx_org_created (organization_id, created_at DESC),
+      INDEX idx_project (project_id),
+      INDEX idx_cost_center (cost_center_id),
+      
+      -- Índice compuesto para historial de usuario
+      INDEX idx_user_history (user_id, analysis_type, created_at DESC)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    COMMENT 'Historial de análisis del Budget Analyzer'
+  `);
+  console.log('✅ Tabla budget_analyses creada (multi-tenant)');
+}
+
 // ==========================================
 // VISTA: MULTIDIMENSIONAL_COSTS_VIEW
 // ==========================================
@@ -1091,7 +1170,8 @@ async function setup() {
     await createIncomeCategoriesTable();
     await createIncomesTable();
     await createProjectsTable();
-
+    await createBudgetAnalysesTable();
+    
     console.log('\n🔄 PASO 4: Creando vista multidimensional...\n');
     await createMultidimensionalView();
 

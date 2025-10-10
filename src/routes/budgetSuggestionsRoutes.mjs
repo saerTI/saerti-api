@@ -22,6 +22,7 @@ import {
   estimateApiCosts, 
   estimateCostFromFileSize
 } from '../services/pdfAnalysisOptimizer.mjs';
+import { getUserAnalysisHistory } from '../utils/budgetAnalysisUtils.mjs';
 
 const router = express.Router();
 
@@ -655,6 +656,57 @@ router.post(
       res.status(500).json({
         success: false,
         message: 'Error reseteando límites',
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+);
+
+/**
+ * 🔥 NUEVO ENDPOINT: Obtener historial de análisis del usuario actual
+ * @route   GET /api/budget-analysis/history
+ * @desc    Obtiene historial de todos los análisis del usuario (quick, pdf, projects)
+ * @access  Privado
+ */
+router.get(
+  '/api/budget-analysis/history',
+  authenticate,
+  async (req, res) => {
+    try {
+      const userId = req.user?.id;
+      const clerkUserId = req.user?.clerkId || req.auth?.userId;
+      const organizationId = req.user?.organizationId || req.auth?.orgId;
+      
+      const limit = parseInt(req.query.limit) || 20;
+      const offset = parseInt(req.query.offset) || 0;
+      const analysisType = req.query.type || null;
+      
+      console.log(`📚 Obteniendo historial para usuario: ${userId}, limit: ${limit}`);
+
+      // Llamar a la función real de MySQL
+      const history = await getUserAnalysisHistory(userId, {
+        limit,
+        offset,
+        analysisType,
+        organizationId
+      });
+
+      res.json({
+        success: true,
+        message: 'Historial obtenido exitosamente',
+        data: history,
+        timestamp: new Date().toISOString()
+      });
+
+      console.log(`✅ Historial entregado: ${history.analyses.length} análisis`);
+
+    } catch (error) {
+      console.error('❌ Error obteniendo historial:', error);
+      
+      res.status(500).json({
+        success: false,
+        message: 'Error obteniendo historial de análisis',
+        error_code: 'HISTORY_ERROR',
         timestamp: new Date().toISOString()
       });
     }

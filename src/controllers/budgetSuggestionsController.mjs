@@ -20,7 +20,8 @@ import {
   getProjectAnalysisHistory,
   compareProjectAnalyses,
   generatePdfComparison,
-  createIntelligentChunks
+  createIntelligentChunks,
+  saveQuickAnalysisToDatabase
 } from '../utils/budgetAnalysisUtils.mjs';
 import { estimateApiCosts,
   estimateCostFromFileSize, } from '../services/pdfAnalysisOptimizer.mjs';
@@ -254,6 +255,23 @@ const budgetController = {
 
       const analysis = await generateBudgetSuggestions(projectData, analysisOptions);
 
+      // 🔥 GUARDAR EN MYSQL
+      if (req.body.saveAnalysis !== false) {
+        try {
+          await saveQuickAnalysisToDatabase(
+            analysis, 
+            req.user?.id,
+            projectData,
+            req.user?.clerkId || req.auth?.userId, // Clerk user ID
+            req.user?.organizationId || req.auth?.orgId // Organization ID
+          );
+          console.log('💾 Análisis rápido guardado en MySQL');
+        } catch (saveError) {
+          console.error('⚠️ Error guardando análisis (no crítico):', saveError);
+          // No fallar la respuesta si falla el guardado
+        }
+      }
+
       if (req.user?.id) {
         await incrementUserUsage(req.user.id, 'budget_analysis');
       }
@@ -346,7 +364,7 @@ const budgetController = {
         console.log('📊 Usando datos del request body');
       } else {
         projectData = await extractProjectData(req.params.projectId);
-        console.log('📊 Datos extraídos de BD (placeholder)');
+        console.log('📊 Datos extraídos de BD');
       }
 
       const validationErrors = validateProjectData(projectData);
@@ -372,10 +390,17 @@ const budgetController = {
 
       const analysis = await generateBudgetSuggestions(projectData, analysisOptions);
 
+      // 🔥 GUARDAR EN MYSQL
       if (req.body.saveAnalysis !== false) {
         try {
-          await saveAnalysisToDatabase(req.params.projectId, analysis, req.user?.id);
-          console.log('💾 Análisis guardado en base de datos');
+          await saveAnalysisToDatabase(
+            req.params.projectId, 
+            analysis, 
+            req.user?.id,
+            req.user?.clerkId || req.auth?.userId,
+            req.user?.organizationId || req.auth?.orgId
+          );
+          console.log('💾 Análisis de proyecto guardado en MySQL');
         } catch (saveError) {
           console.warn('⚠️ Error guardando análisis:', saveError.message);
         }
@@ -578,134 +603,120 @@ NOTA: No se pudo extraer texto del PDF. Análisis limitado basado en metadatos d
     const startTime = Date.now();
     
     try {
-      console.log('📄 Iniciando análisis PDF con optimizaciones anti-desperdicio');
+      console.log('📄 Iniciando análisis PDF:', req.file.originalname);
       
-      if (!req.file) {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
         return res.status(400).json({
           success: false,
-          message: 'No se recibió archivo PDF',
-          error_code: 'NO_FILE',
+          message: 'Datos de entrada inválidos',
+          errors: errors.array(),
           timestamp: new Date().toISOString()
         });
       }
 
-      console.log('✅ Archivo PDF recibido correctamente:', {
-        originalname: req.file.originalname,
-        size: req.file.size,
-        mimetype: req.file.mimetype
-      });
+      if (!req.file || !req.file.buffer) {
+        return res.status(400).json({
+          success: false,
+          message: 'Archivo PDF requerido',
+          error_code: 'FILE_REQUIRED',
+          timestamp: new Date().toISOString()
+        });
+      }
 
-      const costEstimate = req.costEstimate || estimateCostFromFileSize(req.file.size);
-      console.log(`💰 Costo estimado: $${(costEstimate.estimated_cost_usd || costEstimate).toFixed(3)} USD`);
-
-      const analysisConfig = {
-        ...processAnalysisConfig(req.body),
-        maxCostUsd: req.maxAllowedCost || 2.0,
-        forceOptimization: true,
-        anthropic: {
-          model: (costEstimate.estimated_cost_usd || costEstimate) > 1.0 
-            ? 'claude-3-haiku-20240307'  
-            : 'claude-3-haiku-20240307' 
-        }
+      const analysisId = `pdf_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+      
+      const analysisOptions = {
+        analysisDepth: req.body.analysisDepth || 'standard',
+        projectType: req.body.projectType,
+        projectLocation: req.body.projectLocation,
+        includeProviders: req.body.includeProviders !== false,
+        includeMarketData: req.body.includeMarketData !== false
       };
 
-      console.log(`🎯 Usando modelo: ${analysisConfig.anthropic.model}`);
+      console.log('⚙️ Opciones de análisis PDF:', analysisOptions);
 
-      let analysisResult;
-      
+      const analysisResult = await analyzePdfBudgetWithAI(
+        req.file.buffer,
+        req.file.originalname,
+        analysisOptions
+      );
+
+      const processingTime = Date.now() - startTime;
+
+      // 🔥 GUARDAR EN MYSQL
       try {
-        analysisResult = await this.executeAnalysis(req.file, analysisConfig);
-        console.log('✅ Análisis completo exitoso');
-      } catch (extractionError) {
-        console.warn('⚠️ Servicio completo falló, usando método simplificado:', extractionError.message);
-        
-        analysisResult = await this.executeAnalysisSimplified(req.file, analysisConfig);
-        console.log('✅ Análisis simplificado exitoso');
+        await savePdfAnalysisToDatabase(
+          analysisId,
+          analysisResult,
+          req.user?.id,
+          req.file.originalname,
+          req.user?.clerkId || req.auth?.userId,
+          req.user?.organizationId || req.auth?.orgId
+        );
+        console.log('💾 Análisis PDF guardado en MySQL');
+      } catch (saveError) {
+        console.error('⚠️ Error guardando análisis PDF (no crítico):', saveError);
       }
 
-      // 🔥 NUEVO: PROCESAR Y CORREGIR análisis con cálculos consistentes
-      console.log('🔧 Aplicando correcciones de cálculo...');
-      const correctedAnalysis = procesarYCorregirAnalisis(analysisResult);
-      
-      // 🔥 VALIDAR consistencia
-      const validation = validarConsistenciaPresupuesto(correctedAnalysis);
-      if (!validation.isValid) {
-        console.warn('⚠️ Advertencias de validación:', validation.warnings);
+      if (req.user?.id) {
+        await incrementUserUsage(req.user.id, 'pdf_analysis');
       }
 
-      const response = {
+      res.json({
         success: true,
-        message: 'Análisis PDF completado con optimizaciones',
+        message: 'Análisis PDF completado exitosamente',
         data: {
-          analysis: correctedAnalysis, // ✅ Usar análisis corregido
+          analysis_id: analysisId,
+          analysis: procesarYCorregirAnalisis(analysisResult),
+          file_info: {
+            name: req.file.originalname,
+            size: req.file.size,
+            mime_type: req.file.mimetype
+          },
+          processing_time_ms: processingTime,
           metadata: {
-            analysisId: correctedAnalysis.metadata?.analysis_id || `pdf_${Date.now()}`,
-            originalFileSize: req.file.size,
-            originalFileName: req.file.originalname,
-            contentLength: correctedAnalysis.extraction_metadata?.content_length || 0,
-            processingTime: new Date().toISOString(),
-            processingTimeMs: Date.now() - startTime,
-            extraction: {
-              method: correctedAnalysis.processing_method || 'optimized',
-              confidence: correctedAnalysis.confidence_score || 0,
-              chunks_processed: correctedAnalysis.chunks_procesados || 0,
-              chunks_successful: correctedAnalysis.chunks_exitosos || 0
-            },
-            optimization: {
-              cost_estimate_usd: costEstimate.estimated_cost_usd || costEstimate,
-              cost_estimate_clp: costEstimate.estimated_cost_clp || ((costEstimate.estimated_cost_usd || costEstimate) * 950),
-              model_used: analysisConfig.anthropic.model,
-              optimization_applied: true,
-              cost_warning: costEstimate.cost_warning || 'Optimizado exitosamente'
-            },
-            validation: validation
+            ...analysisResult.metadata,
+            processing_time_ms: processingTime
           }
         },
         timestamp: new Date().toISOString()
-      };
-
-      console.log('✅ Análisis PDF completado:', {
-        tiempo: `${Date.now() - startTime}ms`,
-        costo: `$${(costEstimate.estimated_cost_usd || costEstimate).toFixed(3)} USD`,
-        archivo: req.file.originalname
       });
 
-      res.json(response);
+      console.log('✅ Análisis PDF completado:', {
+        tiempo: `${processingTime}ms`,
+        archivo: req.file.originalname,
+        analysis_id: analysisId
+      });
 
     } catch (error) {
-      console.error('❌ Error en análisis PDF optimizado:', error);
-
+      console.error('❌ Error en analyzePdfBudget:', error);
+      
+      const processingTime = Date.now() - startTime;
+      
       let errorMessage = 'Error interno en análisis PDF';
       let errorCode = 'ANALYSIS_ERROR';
       let statusCode = 500;
 
-      if (error.message.includes('413') || error.message.includes('grande')) {
-        errorMessage = `Archivo demasiado grande (${(req.file?.size / 1024 / 1024).toFixed(1)}MB). Máximo 20MB.`;
-        errorCode = 'FILE_TOO_LARGE';
-        statusCode = 413;
-      } else if (error.message.includes('415') || error.message.includes('formato')) {
-        errorMessage = 'Solo se permiten archivos PDF válidos.';
-        errorCode = 'INVALID_FORMAT';
-        statusCode = 415;
+      if (error.message.includes('COST_LIMIT')) {
+        errorMessage = error.message;
+        errorCode = 'COST_LIMIT_EXCEEDED';
+        statusCode = 400;
       } else if (error.message.includes('429') || error.message.includes('límite')) {
         errorMessage = 'Límite de API alcanzado. Intente en 5 minutos.';
         errorCode = 'RATE_LIMIT';
         statusCode = 429;
-      } else if (error.message.includes('COST_LIMIT')) {
-        errorMessage = error.message;
-        errorCode = 'COST_LIMIT_EXCEEDED';
-        statusCode = 400;
-      } else if (error.message.includes('extractContent') || error.message.includes('PDF')) {
-        errorMessage = 'Error procesando archivo PDF. Verifique que el archivo no esté corrupto.';
-        errorCode = 'PDF_PROCESSING_ERROR';
-        statusCode = 400;
+      } else if (error.message.includes('415') || error.message.includes('formato')) {
+        errorMessage = 'Solo se permiten archivos PDF válidos.';
+        errorCode = 'INVALID_FORMAT';
+        statusCode = 415;
       }
 
       res.status(statusCode).json({
         success: false,
         message: errorMessage,
         error_code: errorCode,
-        processing_time_ms: Date.now() - startTime,
+        processing_time_ms: processingTime,
         timestamp: new Date().toISOString()
       });
 

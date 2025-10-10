@@ -1,9 +1,165 @@
 // src/utils/budgetAnalysisUtils.mjs
-// 🔥 VERSIÓN LIMPIA - SOLO FUNCIONES UTILIZADAS
+import { pool } from '../config/database.mjs';
+/**
+ * Obtiene historial de análisis del usuario (todos los tipos)
+ * ✅ SE USA en budgetSuggestionsRoutes.mjs
+ */
+export async function getUserAnalysisHistory(userId, options = {}) {
+  try {
+    const { 
+      limit = 20, 
+      offset = 0, 
+      analysisType = null,
+      organizationId = null 
+    } = options;
+    
+    console.log('🔍 Obteniendo historial desde MySQL:', {
+      userId,
+      limit,
+      offset,
+      analysisType,
+      organizationId
+    });
+    
+    let query = `
+      SELECT 
+        id,
+        analysis_id,
+        analysis_type,
+        file_name,
+        project_type,
+        location,
+        area_m2,
+        estimated_budget,
+        confidence_score,
+        summary,
+        created_at
+      FROM budget_analyses
+      WHERE user_id = ? AND active = 1
+    `;
+    
+    const params = [userId];
+    
+    // Filtrar por organización si existe
+    if (organizationId) {
+      query += ` AND organization_id = ?`;
+      params.push(organizationId);
+    }
+    
+    // Filtrar por tipo de análisis
+    if (analysisType) {
+      query += ` AND analysis_type = ?`;
+      params.push(analysisType);
+    }
+    
+    query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), parseInt(offset));
+    
+    const [analyses] = await pool.query(query, params);
+    
+    // Obtener total
+    let countQuery = `
+      SELECT COUNT(*) as total 
+      FROM budget_analyses 
+      WHERE user_id = ? AND active = 1
+    `;
+    const countParams = [userId];
+    
+    if (organizationId) {
+      countQuery += ` AND organization_id = ?`;
+      countParams.push(organizationId);
+    }
+    
+    if (analysisType) {
+      countQuery += ` AND analysis_type = ?`;
+      countParams.push(analysisType);
+    }
+    
+    const [[{ total }]] = await pool.query(countQuery, countParams);
+    
+    console.log(`✅ Historial obtenido: ${analyses.length} de ${total} análisis`);
+    
+    return {
+      analyses,
+      total,
+      pagination: {
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        has_more: (offset + limit) < total
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ Error obteniendo historial:', error);
+    throw error;
+  }
+}
 
-// ====================================================================
-// 🔧 FUNCIONES DE EXTRACCIÓN Y VALIDACIÓN (TODAS SE USAN)
-// ====================================================================
+/**
+ * Guarda análisis rápido en base de datos
+ * ✅ SE USA en budgetSuggestionsController.mjs
+ */
+export async function saveQuickAnalysisToDatabase(analysis, userId, projectData, clerkUserId = null, organizationId = null) {
+  try {
+    const analysisId = `quick_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
+    const analysisRecord = {
+      analysis_id: analysisId,
+      organization_id: organizationId,
+      user_id: userId,
+      clerk_user_id: clerkUserId,
+      analysis_type: 'quick',
+      
+      // Datos del proyecto
+      project_type: projectData.type || 'Proyecto General',
+      location: projectData.location || 'Chile',
+      area_m2: projectData.area || null,
+      
+      // Resultados
+      estimated_budget: analysis.presupuesto_estimado?.total_clp || 0,
+      confidence_score: analysis.metadata?.confidence_score || 70,
+      
+      // Resumen
+      summary: `Análisis rápido para ${projectData.type || 'proyecto'} en ${projectData.location || 'Chile'}`,
+      
+      // JSON completos
+      full_analysis: JSON.stringify(analysis),
+      project_data: JSON.stringify(projectData),
+      metadata: JSON.stringify({
+        analysis_depth: 'quick',
+        area_m2: projectData.area,
+        initial_budget_estimate: projectData.estimatedBudget,
+        ...analysis.metadata
+      }),
+      
+      active: true
+    };
+    
+    console.log('💾 Guardando análisis rápido en MySQL:', {
+      id: analysisId,
+      user_id: userId,
+      type: analysisRecord.project_type,
+      budget: analysisRecord.estimated_budget
+    });
+    
+    const [result] = await pool.query(
+      'INSERT INTO budget_analyses SET ?',
+      analysisRecord
+    );
+    
+    console.log('✅ Análisis rápido guardado en MySQL, ID:', result.insertId);
+    
+    return {
+      id: result.insertId,
+      analysis_id: analysisId,
+      saved: true
+    };
+    
+  } catch (error) {
+    console.error('❌ Error guardando análisis rápido:', error);
+    throw error;
+  }
+}
 
 /**
  * Extrae datos del proyecto desde la base de datos (por ID)
@@ -154,58 +310,180 @@ export function handlePdfAnalysisError(error) {
  * Guarda análisis de proyecto en base de datos
  * ✅ SE USA en budgetSuggestionsController.mjs
  */
-export async function saveAnalysisToDatabase(projectId, analysis, userId) {
-  // TODO: Implementar guardado real en base de datos
-  console.log('💾 [PLACEHOLDER] Guardando análisis en BD:', {
-    project_id: projectId,
-    user_id: userId,
-    analysis_size: JSON.stringify(analysis).length
-  });
-  
-  return {
-    id: `analysis_${Date.now()}`,
-    saved: true,
-    timestamp: new Date().toISOString()
-  };
+export async function saveAnalysisToDatabase(projectId, analysis, userId, clerkUserId = null, organizationId = null) {
+  try {
+    const analysisId = `project_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    
+    const analysisRecord = {
+      analysis_id: analysisId,
+      organization_id: organizationId,
+      user_id: userId,
+      clerk_user_id: clerkUserId,
+      analysis_type: 'project',
+      project_id: projectId,
+      
+      // Datos principales
+      project_type: analysis.project_type || 'general',
+      location: analysis.location || 'Chile',
+      area_m2: analysis.area || null,
+      
+      // Resultados
+      estimated_budget: analysis.presupuesto_estimado?.total_clp || 0,
+      confidence_score: analysis.metadata?.confidence_score || 75,
+      
+      // Resumen
+      summary: analysis.resumen_ejecutivo?.substring(0, 500) || 'Análisis de proyecto',
+      
+      // JSON completos
+      full_analysis: JSON.stringify(analysis),
+      project_data: null,
+      metadata: JSON.stringify({
+        analysis_depth: 'standard',
+        include_market_rates: true,
+        api_cost: analysis.metadata?.api_cost_estimate?.estimated_cost_usd || 0,
+        ...analysis.metadata
+      }),
+      
+      active: true
+    };
+    
+    console.log('💾 Guardando análisis de proyecto en MySQL:', {
+      id: analysisId,
+      user_id: userId,
+      project_id: projectId,
+      budget: analysisRecord.estimated_budget
+    });
+    
+    const [result] = await pool.query(
+      'INSERT INTO budget_analyses SET ?',
+      analysisRecord
+    );
+    
+    console.log('✅ Análisis de proyecto guardado en MySQL, ID:', result.insertId);
+    
+    return {
+      id: result.insertId,
+      analysis_id: analysisId,
+      saved: true
+    };
+    
+  } catch (error) {
+    console.error('❌ Error guardando análisis de proyecto:', error);
+    throw error;
+  }
 }
 
 /**
  * Guarda análisis PDF en base de datos
  * ✅ SE USA en budgetSuggestionsController.mjs
  */
-export async function savePdfAnalysisToDatabase(analysisId, analysis, userId) {
-  // TODO: Implementar guardado real en BD
-  console.log('💾 [PLACEHOLDER] Guardando análisis PDF:', { 
-    analysisId, 
-    userId,
-    analysis_size: JSON.stringify(analysis).length 
-  });
-  
-  return {
-    id: analysisId,
-    saved: true,
-    timestamp: new Date().toISOString()
-  };
+export async function savePdfAnalysisToDatabase(analysisId, analysis, userId, fileName = null, clerkUserId = null, organizationId = null) {
+  try {
+    const analysisRecord = {
+      analysis_id: analysisId,
+      organization_id: organizationId,
+      user_id: userId,
+      clerk_user_id: clerkUserId,
+      analysis_type: 'pdf',
+      
+      // Información del archivo
+      file_name: fileName,
+      file_size: analysis.metadata?.file_size || null,
+      
+      // Datos principales
+      project_type: analysis.project_type || 'Análisis de Presupuesto',
+      location: analysis.location || 'Chile',
+      area_m2: analysis.area || null,
+      
+      // Resultados
+      estimated_budget: analysis.presupuesto_estimado?.total_clp || 
+                       analysis.presupuesto_ajustado?.total_clp || 0,
+      confidence_score: analysis.metadata?.confidence_score || 80,
+      
+      // Resumen
+      summary: analysis.resumen_ejecutivo?.substring(0, 500) || 
+               'Análisis de presupuesto desde PDF',
+      
+      // JSON completos
+      full_analysis: JSON.stringify(analysis),
+      project_data: null,
+      metadata: JSON.stringify({
+        pages_analyzed: analysis.metadata?.pages_analyzed || 0,
+        text_length: analysis.metadata?.text_length || 0,
+        api_cost: analysis.metadata?.api_cost_estimate?.estimated_cost_usd || 0,
+        processing_time_ms: analysis.metadata?.processing_time_ms || 0,
+        ...analysis.metadata
+      }),
+      
+      active: true
+    };
+    
+    console.log('💾 Guardando análisis PDF en MySQL:', {
+      id: analysisId,
+      user_id: userId,
+      file_name: fileName,
+      budget: analysisRecord.estimated_budget
+    });
+    
+    const [result] = await pool.query(
+      'INSERT INTO budget_analyses SET ?',
+      analysisRecord
+    );
+    
+    console.log('✅ Análisis PDF guardado en MySQL, ID:', result.insertId);
+    
+    return {
+      id: result.insertId,
+      analysis_id: analysisId,
+      saved: true
+    };
+    
+  } catch (error) {
+    console.error('❌ Error guardando análisis PDF:', error);
+    throw error;
+  }
 }
+
 
 /**
  * Obtiene análisis PDF desde base de datos por ID
  * ✅ SE USA en budgetSuggestionsController.mjs
  */
 export async function getPdfAnalysisFromDatabase(analysisId) {
-  // TODO: Implementar consulta real a BD
-  console.log('🔍 [PLACEHOLDER] Buscando análisis PDF:', { analysisId });
-  
-  // Simular que no se encuentra para desarrollo
-  return null;
-  
-  // Cuando implementes la BD real, retorna algo como:
-  // return {
-  //   id: analysisId,
-  //   analysis: { ... },
-  //   created_at: '2024-01-15T10:30:00Z',
-  //   user_id: 'user123'
-  // };
+  try {
+    console.log('🔍 Buscando análisis por ID:', analysisId);
+    
+    const [rows] = await pool.query(
+      `SELECT * FROM budget_analyses WHERE analysis_id = ? AND active = 1 LIMIT 1`,
+      [analysisId]
+    );
+    
+    if (rows.length === 0) {
+      console.log('⚠️ Análisis no encontrado');
+      return null;
+    }
+    
+    const analysis = rows[0];
+    
+    // Parsear JSON
+    if (analysis.full_analysis) {
+      analysis.full_analysis = JSON.parse(analysis.full_analysis);
+    }
+    if (analysis.project_data) {
+      analysis.project_data = JSON.parse(analysis.project_data);
+    }
+    if (analysis.metadata) {
+      analysis.metadata = JSON.parse(analysis.metadata);
+    }
+    
+    console.log('✅ Análisis encontrado:', analysis.analysis_id);
+    
+    return analysis;
+    
+  } catch (error) {
+    console.error('❌ Error obteniendo análisis:', error);
+    throw error;
+  }
 }
 
 /**

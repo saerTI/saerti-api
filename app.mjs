@@ -12,22 +12,6 @@ import { clerkAuth } from './src/middleware/clerkAuth.mjs';
 // Importar rutas (mantener todas como están)
 import authRoutes from './src/routes/authRoutes.mjs';
 import userRoutes from './src/routes/userRoutes.mjs';
-import projectRoutes from './src/routes/projectRoutes.mjs';
-import milestoneRoutes from './src/routes/milestoneRoutes.mjs';
-import cashFlowRoutes from './src/routes/cashFlowRoutes.mjs';
-import reportRoutes from './src/routes/reportRoutes.mjs';
-import previsionalRoutes from './src/routes/CC/previsionalRoutes.mjs';
-import remuneracionRoutes from './src/routes/CC/remuneracionRoutes.mjs';
-import ordenCompraRoutes from './src/routes/CC/ordenCompraRoutes.mjs';
-import ordenCompraItemRoutes from './src/routes/CC/OrdenCompraItemRoutes.mjs';
-import multidimensionalRoutes from './src/routes/CC/multidimensionalRoutes.mjs';
-import fixedCostsRoutes from './src/routes/CC/fixedCostsRoutes.mjs';
-import empleadosRoutes from './src/routes/CC/empleadosRoutes.mjs';
-import incomeRoutes from './src/routes/incomeRoutes.mjs';
-import incomeCategoriesRoutes from './src/routes/incomeCategoriesRoutes.mjs';
-import factoringRoutes from './src/routes/factoringRoutes.mjs';
-import factoringEntityRoutes from './src/routes/factoringEntityRoutes.mjs';
-import accountCategoryRoutes from './src/routes/accountCategoryRoutes.mjs';
 import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
 
 const app = express();
@@ -88,7 +72,7 @@ app.use((req, res, next) => {
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'success',
-    message: 'SAERTI API funcionando correctamente',
+    message: 'ResuelveYA funcionando correctamente',
     timestamp: new Date(),
     version: '2.0.0-clerk',
     auth: 'Clerk Multi-Tenant Enabled',
@@ -123,22 +107,7 @@ app.use((req, res, next) => {
 
 app.use(authRoutes);
 app.use(userRoutes);
-app.use(projectRoutes);
-app.use(milestoneRoutes);
-app.use(cashFlowRoutes);
-app.use(reportRoutes);
-app.use(previsionalRoutes);
-app.use(remuneracionRoutes);
-app.use(ordenCompraRoutes);
-app.use(ordenCompraItemRoutes);
-app.use(multidimensionalRoutes);
-app.use(fixedCostsRoutes);
-app.use(empleadosRoutes);
-app.use(incomeRoutes);
-app.use('/api/income-categories', incomeCategoriesRoutes);
-app.use(factoringRoutes);
-app.use(factoringEntityRoutes);
-app.use('/api/account-categories', accountCategoryRoutes);
+
 app.use(budgetSuggestionsRoutes);
 
 // ============================================
