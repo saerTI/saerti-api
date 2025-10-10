@@ -547,7 +547,7 @@ PROYECTO ESPECÍFICO:
 - Ubicación: ${projectData.location || 'No especificada'}
 - Área: ${projectData.area || 0} m²
 - Descripción: ${projectData.description || 'Sin descripción'}
-- Presupuesto estimado: $${(projectData.estimatedBudget || 0).toLocaleString('es-CL')} CLP
+- Presupuesto estimado inicial: $${(projectData.estimatedBudget || 0).toLocaleString('es-CL')} CLP
 
 CONTEXTO ESPECÍFICO:
 ${projectData.description || `Proyecto ${projectData.type} de ${projectData.area}m² en ${projectData.location}`}
@@ -557,24 +557,87 @@ PARÁMETROS:
 - Incluir datos de mercado: ${options.includeMarketData ? 'Sí' : 'No'}
 - Incluir proveedores: ${options.includeProviders ? 'Sí' : 'No'}
 
-RESPONDER EN JSON:
+RESPONDER EN JSON CON ESTA ESTRUCTURA EXACTA:
 {
-  "resumen_ejecutivo": "Análisis específico del proyecto",
-  "presupuesto_ajustado": "Monto en CLP",
-  "desglose_detallado": {
-    "estructura": {"porcentaje": "X%", "monto": "$X CLP"},
-    "terminaciones": {"porcentaje": "X%", "monto": "$X CLP"},
-    "instalaciones": {"porcentaje": "X%", "monto": "$X CLP"}
+  "resumen_ejecutivo": "Análisis específico del proyecto en 2-3 líneas",
+  "presupuesto_estimado": {
+    "total_clp": ${projectData.estimatedBudget || 50000000},
+    "materials_percentage": 45,
+    "labor_percentage": 35,
+    "equipment_percentage": 10,
+    "overhead_percentage": 10
   },
+  "desglose_costos": {
+    "materiales": ${Math.round((projectData.estimatedBudget || 50000000) * 0.45)},
+    "mano_obra": ${Math.round((projectData.estimatedBudget || 50000000) * 0.35)},
+    "equipos": ${Math.round((projectData.estimatedBudget || 50000000) * 0.10)},
+    "gastos_generales": ${Math.round((projectData.estimatedBudget || 50000000) * 0.06)},
+    "utilidad": ${Math.round((projectData.estimatedBudget || 50000000) * 0.04)},
+    "subtotal": ${Math.round((projectData.estimatedBudget || 50000000) * 0.90)},
+    "iva": ${Math.round((projectData.estimatedBudget || 50000000) * 0.90 * 0.19)},
+    "total": ${projectData.estimatedBudget || 50000000}
+  },
+  "materiales_detallados": [
+    {
+      "item": "Material principal 1",
+      "cantidad": 100,
+      "unidad": "m²",
+      "precio_unitario": 15000,
+      "subtotal": 1500000,
+      "categoria": "Estructura",
+      "proveedor_sugerido": "Sodimac/Construmart"
+    }
+  ],
+  "mano_obra": [
+    {
+      "especialidad": "Maestro general",
+      "cantidad_hh": 200,
+      "tarifa_hora": 8000,
+      "subtotal": 1600000,
+      "nivel_experiencia": "Medio"
+    }
+  ],
+  "equipos_maquinaria": [
+    {
+      "equipo": "Herramientas menores",
+      "cantidad_dias": 30,
+      "tarifa_diaria": 50000,
+      "subtotal": 1500000,
+      "tipo_arriendo": "Mensual"
+    }
+  ],
+  "proveedores_chile": [
+    {
+      "nombre": "Sodimac",
+      "categoria": "Materiales generales",
+      "ubicacion": "${projectData.location || 'Chile'}",
+      "confiabilidad": "alta"
+    }
+  ],
   "factores_regionales": {
-    "climaticos": "factores del clima en ${projectData.location}",
-    "logisticos": "consideraciones logísticas",
-    "mano_obra": "disponibilidad en ${projectData.location}"
+    "climaticos": "Factores climáticos de ${projectData.location}",
+    "logisticos": "Consideraciones de acceso y transporte",
+    "mano_obra": "Disponibilidad en ${projectData.location}",
+    "regulaciones": "Normativas locales aplicables"
   },
-  "recomendaciones": ["recomendaciones específicas"],
-  "cronograma_sugerido": "tiempo estimado para ${projectData.type}",
-  "confidence_score": número
+  "analisis_riesgos": [
+    {
+      "factor": "Variación de precios",
+      "probability": "media",
+      "impact": "medio",
+      "mitigation": "Fijar precios con proveedores"
+    }
+  ],
+  "recomendaciones": [
+    "Recomendación específica 1 para ${projectData.type}",
+    "Recomendación específica 2 basada en ubicación",
+    "Recomendación específica 3 para optimizar costos"
+  ],
+  "cronograma_estimado": "Duración estimada en meses para ${projectData.type}",
+  "confidence_score": 85
 }
+
+IMPORTANTE: La respuesta debe ser JSON válido. El campo presupuesto_estimado.total_clp DEBE contener un número válido.
 `;
 }
 
