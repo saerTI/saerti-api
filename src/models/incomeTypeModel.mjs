@@ -4,6 +4,32 @@
 import { pool } from '../config/database.mjs';
 
 /**
+ * Convert MySQL TINYINT(1) to JavaScript boolean
+ */
+function convertToBoolean(row) {
+  const booleanFields = [
+    'show_amount', 'show_category', 'show_payment_date', 'show_reference_number',
+    'show_tax_amount', 'show_net_amount', 'show_total_amount', 'show_payment_method',
+    'show_payment_status', 'show_currency', 'show_exchange_rate', 'show_invoice_number',
+    'required_name', 'required_date', 'required_status', 'required_cost_center',
+    'required_amount', 'required_category', 'required_payment_date', 'required_reference_number',
+    'required_tax_amount', 'required_net_amount', 'required_total_amount', 'required_payment_method',
+    'required_payment_status', 'required_currency', 'required_exchange_rate', 'required_invoice_number',
+    'is_active'
+  ];
+
+  const converted = { ...row };
+  booleanFields.forEach(field => {
+    if (field in converted) {
+      converted[field] = Boolean(converted[field]);
+    }
+  });
+
+  return converted;
+}
+
+
+/**
  * Obtener todos los tipos de ingresos de una organización
  * @param {string} organizationId - ID de la organización
  * @param {boolean} onlyActive - Si es true, solo devuelve tipos activos
@@ -57,7 +83,7 @@ export async function getAllIncomeTypes(organizationId, onlyActive = true) {
   `;
 
   const [rows] = await pool.query(sql, [organizationId]);
-  return rows;
+  return rows.map(convertToBoolean);
 }
 
 /**
@@ -112,7 +138,7 @@ export async function getIncomeTypeById(id, organizationId) {
   `;
 
   const [rows] = await pool.query(sql, [id, organizationId]);
-  return rows[0] || null;
+  return rows[0] ? convertToBoolean(rows[0]) : null;
 }
 
 /**

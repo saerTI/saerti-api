@@ -81,7 +81,8 @@ export const clerkAuth = async (req, res, next) => {
       email: localUser.email,
       role: localUser.role,
       active: localUser.active,
-      organizationId: null,
+      organization_id: localUser.organization_id,
+      organizationId: localUser.organization_id,  // Alias para compatibilidad
       organizations: []
     };
 
