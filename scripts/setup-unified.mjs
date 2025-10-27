@@ -564,6 +564,214 @@ async function createIncomesDataTable() {
   `);
   console.log('✅ Tabla incomes_data creada (datos unificados)');
 }
+
+// ==========================================
+// SISTEMA DINÁMICO DE EGRESOS (4 TABLAS)
+// ==========================================
+
+// TABLA 1: expense_types - Configuración de tipos de egresos
+async function createExpenseTypesTable() {
+  const exists = await checkTableExists('expense_types');
+  if (exists) {
+    console.log('ℹ️ Tabla expense_types ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS expense_types (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      -- Información básica
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      icon VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT 'dollar-sign',
+      color VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT '#EF4444',
+
+      -- Campos base (siempre visibles)
+      -- name, description, notes, date, status_id, cost_center_id son base
+
+      -- Control de visibilidad de campos opcionales (show_*)
+      show_amount BOOLEAN DEFAULT TRUE,
+      show_category BOOLEAN DEFAULT TRUE,
+      show_payment_date BOOLEAN DEFAULT FALSE,
+      show_reference_number BOOLEAN DEFAULT FALSE,
+
+      show_payment_method BOOLEAN DEFAULT FALSE,
+      show_payment_status BOOLEAN DEFAULT TRUE,
+      show_currency BOOLEAN DEFAULT FALSE,
+      show_exchange_rate BOOLEAN DEFAULT FALSE,
+      show_invoice_number BOOLEAN DEFAULT FALSE,
+
+      -- Control de campos requeridos (required_*)
+      required_name BOOLEAN DEFAULT TRUE,
+      required_date BOOLEAN DEFAULT TRUE,
+      required_status BOOLEAN DEFAULT TRUE,
+      required_cost_center BOOLEAN DEFAULT TRUE,
+      required_amount BOOLEAN DEFAULT FALSE,
+      required_category BOOLEAN DEFAULT FALSE,
+      required_payment_date BOOLEAN DEFAULT FALSE,
+      required_reference_number BOOLEAN DEFAULT FALSE,
+
+      required_payment_method BOOLEAN DEFAULT FALSE,
+      required_payment_status BOOLEAN DEFAULT FALSE,
+      required_currency BOOLEAN DEFAULT FALSE,
+      required_exchange_rate BOOLEAN DEFAULT FALSE,
+      required_invoice_number BOOLEAN DEFAULT FALSE,
+
+      -- Metadata
+      is_active BOOLEAN DEFAULT TRUE,
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      updated_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      INDEX idx_organization (organization_id),
+      INDEX idx_active (is_active),
+      UNIQUE KEY unique_org_name (organization_id, name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla expense_types creada (sistema dinámico)');
+}
+
+// TABLA 2: expense_categories - Categorías específicas por tipo
+async function createExpenseCategoriesTable() {
+  const exists = await checkTableExists('expense_categories');
+  if (exists) {
+    console.log('ℹ️ Tabla expense_categories ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS expense_categories (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      expense_type_id BIGINT UNSIGNED NOT NULL,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      color VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT '#6B7280',
+
+      is_active BOOLEAN DEFAULT TRUE,
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      updated_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (expense_type_id) REFERENCES expense_types(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      INDEX idx_expense_type (expense_type_id),
+      INDEX idx_organization (organization_id),
+      INDEX idx_active (is_active),
+      UNIQUE KEY unique_type_name (expense_type_id, name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla expense_categories creada (por tipo)');
+}
+
+// TABLA 3: expense_statuses - Estados específicos por tipo
+async function createExpenseStatusesTable() {
+  const exists = await checkTableExists('expense_statuses');
+  if (exists) {
+    console.log('ℹ️ Tabla expense_statuses ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS expense_statuses (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      expense_type_id BIGINT UNSIGNED NOT NULL,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      color VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT '#6B7280',
+      is_final BOOLEAN DEFAULT FALSE COMMENT 'Indica si es un estado final (ej: pagado, cancelado)',
+
+      is_active BOOLEAN DEFAULT TRUE,
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      updated_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (expense_type_id) REFERENCES expense_types(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      INDEX idx_expense_type (expense_type_id),
+      INDEX idx_organization (organization_id),
+      INDEX idx_active (is_active),
+      INDEX idx_final (is_final),
+      UNIQUE KEY unique_type_name (expense_type_id, name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla expense_statuses creada (por tipo)');
+}
+
+// TABLA 4: expenses_data - Datos unificados con todas las columnas posibles
+async function createExpensesDataTable() {
+  const exists = await checkTableExists('expenses_data');
+  if (exists) {
+    console.log('ℹ️ Tabla expenses_data ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS expenses_data (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      expense_type_id BIGINT UNSIGNED NOT NULL,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      -- Campos base (siempre presentes, configurables como requeridos)
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      notes TEXT COLLATE utf8mb4_unicode_ci,
+      date DATE,
+      status_id BIGINT UNSIGNED,
+      cost_center_id BIGINT UNSIGNED,
+
+      -- Campos opcionales (usados solo si show_* = true en expense_type)
+      amount DECIMAL(15,2) DEFAULT NULL,
+      category_id BIGINT UNSIGNED DEFAULT NULL,
+      payment_date DATE DEFAULT NULL,
+      reference_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+
+      payment_method ENUM('transferencia', 'cheque', 'efectivo', 'tarjeta', 'otro') DEFAULT NULL,
+      payment_status ENUM('pendiente', 'parcial', 'pagado', 'anulado') DEFAULT NULL,
+      currency VARCHAR(10) COLLATE utf8mb4_unicode_ci DEFAULT 'CLP',
+      exchange_rate DECIMAL(10,4) DEFAULT NULL,
+      invoice_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+
+      -- Metadata
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      updated_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (expense_type_id) REFERENCES expense_types(id) ON DELETE RESTRICT,
+      FOREIGN KEY (status_id) REFERENCES expense_statuses(id) ON DELETE RESTRICT,
+      FOREIGN KEY (category_id) REFERENCES expense_categories(id) ON DELETE SET NULL,
+      FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE RESTRICT,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      INDEX idx_organization (organization_id),
+      INDEX idx_expense_type (expense_type_id),
+      INDEX idx_date (date),
+      INDEX idx_status (status_id),
+      INDEX idx_cost_center (cost_center_id),
+      INDEX idx_category (category_id),
+      INDEX idx_payment_status (payment_status)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla expenses_data creada (datos unificados)');
+}
+
 // ==========================================
 // TABLA: PROJECTS (multi-tenant)
 // ==========================================
@@ -912,7 +1120,12 @@ async function setup() {
     await createIncomeCategoriesTableNew();
     await createIncomesDataTable();
 
-    
+    console.log('\n💸 PASO 3.6: Creando sistema dinámico de egresos...\n');
+    await createExpenseTypesTable();
+    await createExpenseStatusesTable();
+    await createExpenseCategoriesTable();
+    await createExpensesDataTable();
+
     console.log('\n🔄 PASO 4: Creando vista multidimensional...\n');
     await createMultidimensionalView();
 
@@ -926,8 +1139,9 @@ async function setup() {
     console.log('   ✅ Soporte Clerk (clerk_id, organization_id)');
     console.log('   ✅ Multi-tenant en todas las tablas principales');
     console.log('   ✅ Vista multidimensional_costs_view funcionando');
-    console.log('   ✅ 14 tablas creadas con relaciones correctas');
+    console.log('   ✅ 18 tablas creadas con relaciones correctas');
     console.log('   ✅ Sistema dinámico de ingresos (4 tablas)');
+    console.log('   ✅ Sistema dinámico de egresos (4 tablas)');
     console.log('   ✅ Usuario admin creado (admin@saer.cl / admin)');
     console.log('   ✅ Collation uniforme (utf8mb4_unicode_ci)');
     console.log('\n🚀 Tu sistema está listo para usar!\n');
