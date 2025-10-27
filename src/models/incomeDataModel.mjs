@@ -1,7 +1,7 @@
 // src/models/incomeDataModel.mjs
 // Modelo para datos de ingresos (tabla unificada con todos los campos)
 
-import db from '../config/database.mjs';
+import { pool } from '../config/database.mjs';
 
 /**
  * Obtener todos los ingresos de un tipo con paginación y filtros
@@ -86,7 +86,7 @@ export async function getAllIncomes(filters = {}) {
   sql += ` ORDER BY i.date DESC, i.created_at DESC LIMIT ? OFFSET ?`;
   params.push(limit, offset);
 
-  const [rows] = await db.query(sql, params);
+  const [rows] = await pool.query(sql, params);
   return rows;
 }
 
@@ -156,7 +156,7 @@ export async function countIncomes(filters = {}) {
     params.push(searchParam, searchParam, searchParam, searchParam);
   }
 
-  const [rows] = await db.query(sql, params);
+  const [rows] = await pool.query(sql, params);
   return rows[0].total;
 }
 
@@ -186,7 +186,7 @@ export async function getIncomeById(id, organizationId) {
     WHERE i.id = ? AND i.organization_id = ?
   `;
 
-  const [rows] = await db.query(sql, [id, organizationId]);
+  const [rows] = await pool.query(sql, [id, organizationId]);
   return rows[0] || null;
 }
 
@@ -245,7 +245,7 @@ export async function createIncome(incomeData) {
     incomeData.created_by || null
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.insertId;
 }
 
@@ -305,7 +305,7 @@ export async function updateIncome(id, organizationId, incomeData) {
     organizationId
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.affectedRows;
 }
 
@@ -320,7 +320,7 @@ export async function deleteIncome(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -366,7 +366,7 @@ export async function getIncomeStats(organizationId, incomeTypeId = null, dateFr
 
   sql += ` GROUP BY i.income_type_id, it.name`;
 
-  const [rows] = await db.query(sql, params);
+  const [rows] = await pool.query(sql, params);
   return rows;
 }
 
@@ -391,6 +391,6 @@ export async function getIncomesByStatus(organizationId, incomeTypeId) {
     ORDER BY s.name
   `;
 
-  const [rows] = await db.query(sql, [organizationId, incomeTypeId, organizationId]);
+  const [rows] = await pool.query(sql, [organizationId, incomeTypeId, organizationId]);
   return rows;
 }

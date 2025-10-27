@@ -1,7 +1,7 @@
 // src/models/incomeStatusModel.mjs
 // Modelo para estados de ingresos (específicos por tipo)
 
-import db from '../config/database.mjs';
+import { pool } from '../config/database.mjs';
 
 /**
  * Obtener todos los estados de un tipo de ingreso
@@ -28,7 +28,7 @@ export async function getStatusesByType(incomeTypeId, organizationId, onlyActive
     ORDER BY name ASC
   `;
 
-  const [rows] = await db.query(sql, [incomeTypeId, organizationId]);
+  const [rows] = await pool.query(sql, [incomeTypeId, organizationId]);
   return rows;
 }
 
@@ -54,7 +54,7 @@ export async function getStatusById(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [rows] = await db.query(sql, [id, organizationId]);
+  const [rows] = await pool.query(sql, [id, organizationId]);
   return rows[0] || null;
 }
 
@@ -85,7 +85,7 @@ export async function createStatus(statusData) {
     statusData.is_active ?? true
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.insertId;
 }
 
@@ -117,7 +117,7 @@ export async function updateStatus(id, organizationId, statusData) {
     organizationId
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.affectedRows;
 }
 
@@ -133,7 +133,7 @@ export async function deleteStatus(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -149,7 +149,7 @@ export async function hardDeleteStatus(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -168,7 +168,7 @@ export async function statusNameExistsInType(incomeTypeId, name, excludeId = nul
   `;
 
   const params = excludeId ? [incomeTypeId, name, excludeId] : [incomeTypeId, name];
-  const [rows] = await db.query(sql, params);
+  const [rows] = await pool.query(sql, params);
   return rows.length > 0;
 }
 
@@ -183,7 +183,7 @@ export async function countIncomesForStatus(statusId) {
     WHERE status_id = ?
   `;
 
-  const [rows] = await db.query(sql, [statusId]);
+  const [rows] = await pool.query(sql, [statusId]);
   return rows[0].count;
 }
 
@@ -210,6 +210,6 @@ export async function getFinalStatusesByType(incomeTypeId, organizationId) {
     ORDER BY name ASC
   `;
 
-  const [rows] = await db.query(sql, [incomeTypeId, organizationId]);
+  const [rows] = await pool.query(sql, [incomeTypeId, organizationId]);
   return rows;
 }

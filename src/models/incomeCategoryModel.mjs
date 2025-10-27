@@ -1,7 +1,7 @@
 // src/models/incomeCategoryModel.mjs
 // Modelo para categorías de ingresos (específicas por tipo)
 
-import db from '../config/database.mjs';
+import { pool } from '../config/database.mjs';
 
 /**
  * Obtener todas las categorías de un tipo de ingreso
@@ -27,7 +27,7 @@ export async function getCategoriesByType(incomeTypeId, organizationId, onlyActi
     ORDER BY name ASC
   `;
 
-  const [rows] = await db.query(sql, [incomeTypeId, organizationId]);
+  const [rows] = await pool.query(sql, [incomeTypeId, organizationId]);
   return rows;
 }
 
@@ -52,7 +52,7 @@ export async function getCategoryById(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [rows] = await db.query(sql, [id, organizationId]);
+  const [rows] = await pool.query(sql, [id, organizationId]);
   return rows[0] || null;
 }
 
@@ -81,7 +81,7 @@ export async function createCategory(categoryData) {
     categoryData.is_active ?? true
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.insertId;
 }
 
@@ -111,7 +111,7 @@ export async function updateCategory(id, organizationId, categoryData) {
     organizationId
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.affectedRows;
 }
 
@@ -127,7 +127,7 @@ export async function deleteCategory(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -143,7 +143,7 @@ export async function hardDeleteCategory(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -162,7 +162,7 @@ export async function categoryNameExistsInType(incomeTypeId, name, excludeId = n
   `;
 
   const params = excludeId ? [incomeTypeId, name, excludeId] : [incomeTypeId, name];
-  const [rows] = await db.query(sql, params);
+  const [rows] = await pool.query(sql, params);
   return rows.length > 0;
 }
 
@@ -177,6 +177,6 @@ export async function countIncomesForCategory(categoryId) {
     WHERE category_id = ?
   `;
 
-  const [rows] = await db.query(sql, [categoryId]);
+  const [rows] = await pool.query(sql, [categoryId]);
   return rows[0].count;
 }

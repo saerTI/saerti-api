@@ -1,7 +1,7 @@
 // src/models/incomeTypeModel.mjs
 // Modelo para gestión de tipos de ingresos dinámicos
 
-import db from '../config/database.mjs';
+import { pool } from '../config/database.mjs';
 
 /**
  * Obtener todos los tipos de ingresos de una organización
@@ -56,7 +56,7 @@ export async function getAllIncomeTypes(organizationId, onlyActive = true) {
     ORDER BY name ASC
   `;
 
-  const [rows] = await db.query(sql, [organizationId]);
+  const [rows] = await pool.query(sql, [organizationId]);
   return rows;
 }
 
@@ -111,7 +111,7 @@ export async function getIncomeTypeById(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [rows] = await db.query(sql, [id, organizationId]);
+  const [rows] = await pool.query(sql, [id, organizationId]);
   return rows[0] || null;
 }
 
@@ -198,7 +198,7 @@ export async function createIncomeType(incomeTypeData) {
     incomeTypeData.created_by || null
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.insertId;
 }
 
@@ -288,7 +288,7 @@ export async function updateIncomeType(id, organizationId, incomeTypeData) {
     organizationId
   ];
 
-  const [result] = await db.query(sql, values);
+  const [result] = await pool.query(sql, values);
   return result.affectedRows;
 }
 
@@ -304,7 +304,7 @@ export async function deleteIncomeType(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -320,7 +320,7 @@ export async function hardDeleteIncomeType(id, organizationId) {
     WHERE id = ? AND organization_id = ?
   `;
 
-  const [result] = await db.query(sql, [id, organizationId]);
+  const [result] = await pool.query(sql, [id, organizationId]);
   return result.affectedRows;
 }
 
@@ -339,7 +339,7 @@ export async function incomeTypeNameExists(name, organizationId, excludeId = nul
   `;
 
   const params = excludeId ? [organizationId, name, excludeId] : [organizationId, name];
-  const [rows] = await db.query(sql, params);
+  const [rows] = await pool.query(sql, params);
   return rows.length > 0;
 }
 
@@ -354,6 +354,6 @@ export async function countIncomesForType(incomeTypeId) {
     WHERE income_type_id = ?
   `;
 
-  const [rows] = await db.query(sql, [incomeTypeId]);
+  const [rows] = await pool.query(sql, [incomeTypeId]);
   return rows[0].count;
 }
