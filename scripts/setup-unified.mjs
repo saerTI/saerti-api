@@ -365,89 +365,14 @@ async function createAccountingCostsTable() {
 }
 
 // ==========================================
-// TABLA: INCOMES (multi-tenant)
+// TABLAS DE INGRESOS ANTIGUAS ELIMINADAS
 // ==========================================
-async function createIncomesTable() {
-  const exists = await checkTableExists('incomes');
-  if (exists) {
-    console.log('ℹ️ Tabla incomes ya existe');
-    return;
-  }
-
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS incomes (
-      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
-      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci,
-      document_number VARCHAR(50) COLLATE utf8mb4_unicode_ci NOT NULL,
-      ep_detail VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-      client_name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-      client_tax_id VARCHAR(20) COLLATE utf8mb4_unicode_ci NOT NULL,
-      ep_value DECIMAL(15,2) DEFAULT 0,
-      adjustments DECIMAL(15,2) DEFAULT 0,
-      ep_total DECIMAL(15,2) NOT NULL,
-      fine DECIMAL(15,2) DEFAULT 0,
-      retention DECIMAL(15,2) DEFAULT 0,
-      advance DECIMAL(15,2) DEFAULT 0,
-      exempt DECIMAL(15,2) DEFAULT 0,
-      net_amount DECIMAL(15,2) DEFAULT 0,
-      tax_amount DECIMAL(15,2) DEFAULT 0,
-      total_amount DECIMAL(15,2) DEFAULT 0,
-      factoring VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-      payment_date DATE DEFAULT NULL,
-      factoring_due_date DATE DEFAULT NULL,
-      state ENUM('borrador', 'activo', 'facturado', 'pagado', 'cancelado') DEFAULT 'activo',
-      payment_status ENUM('no_pagado', 'pago_parcial', 'pagado') DEFAULT 'no_pagado',
-      date DATE NOT NULL,
-      cost_center_id BIGINT UNSIGNED DEFAULT NULL,
-      category_id BIGINT UNSIGNED DEFAULT NULL,
-      description TEXT COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-      notes TEXT COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-      created_by BIGINT UNSIGNED DEFAULT NULL,
-      updated_by BIGINT UNSIGNED DEFAULT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      
-      FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE SET NULL,
-      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
-      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
-      
-      INDEX idx_organization (organization_id),
-      INDEX idx_document_number (document_number),
-      INDEX idx_client_tax_id (client_tax_id),
-      INDEX idx_date (date),
-      INDEX idx_state (state),
-      INDEX idx_payment_status (payment_status),
-      INDEX idx_cost_center (cost_center_id),
-      UNIQUE KEY unique_org_document (organization_id, document_number)
-    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-  `);
-  console.log('✅ Tabla incomes creada (multi-tenant)');
-}
-
-// ==========================================
-// TABLA: INCOME_CATEGORIES (compartida)
-// ==========================================
-async function createIncomeCategoriesTable() {
-  const exists = await checkTableExists('income_categories');
-  if (exists) {
-    console.log('ℹ️ Tabla income_categories ya existe');
-    return;
-  }
-
-  await conn.query(`
-    CREATE TABLE IF NOT EXISTS income_categories (
-      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
-      categoria VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-      active BOOLEAN DEFAULT TRUE,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      
-      INDEX idx_categoria (categoria),
-      INDEX idx_active (active)
-    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-  `);
-  console.log('✅ Tabla income_categories creada');
-}
+// Las tablas incomes e income_categories fueron eliminadas.
+// Serán reemplazadas por el nuevo sistema dinámico con:
+// - income_types
+// - income_categories (nueva estructura)
+// - income_statuses
+// - incomes_data
 
 // ==========================================
 // TABLA: PROJECTS (multi-tenant)
@@ -788,8 +713,6 @@ async function setup() {
     await createAccountCategoriesTable();
     await createSuppliersTable();
     await createAccountingCostsTable();
-    await createIncomeCategoriesTable();
-    await createIncomesTable();
     await createProjectsTable();
     await createBudgetAnalysesTable();
     
@@ -806,8 +729,7 @@ async function setup() {
     console.log('   ✅ Soporte Clerk (clerk_id, organization_id)');
     console.log('   ✅ Multi-tenant en todas las tablas principales');
     console.log('   ✅ Vista multidimensional_costs_view funcionando');
-    console.log('   ✅ Tabla incomes creada con multi-tenant');
-    console.log('   ✅ 12 tablas creadas con relaciones correctas');
+    console.log('   ✅ 10 tablas creadas con relaciones correctas');
     console.log('   ✅ Usuario admin creado (admin@saer.cl / admin)');
     console.log('   ✅ Collation uniforme (utf8mb4_unicode_ci)');
     console.log('\n🚀 Tu sistema está listo para usar!\n');
