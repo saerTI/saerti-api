@@ -8,7 +8,7 @@
     "start": "node server.mjs",
     "dev": "nodemon server.mjs",
     "setup": "node scripts/setup.mjs",
-    "setup_db:force": "node scripts/setup.mjs --force",
+    "setup_db:force": "node scripts/setup-unified.mjs --force",
     "setup:clerk": "node scripts/setup-clerk.mjs",
     "db:reset": "node scripts/setup-clerk.mjs"
   },
