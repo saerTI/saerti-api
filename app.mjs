@@ -13,6 +13,7 @@ import { clerkAuth } from './src/middleware/clerkAuth.mjs';
 import authRoutes from './src/routes/authRoutes.mjs';
 import userRoutes from './src/routes/userRoutes.mjs';
 import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
+import incomeRoutes from './src/routes/incomeRoutes.mjs';
 
 const app = express();
 
@@ -109,6 +110,7 @@ app.use(authRoutes);
 app.use(userRoutes);
 
 app.use(budgetSuggestionsRoutes);
+app.use('/api', incomeRoutes);
 
 // ============================================
 // ERROR HANDLERS
