@@ -397,9 +397,7 @@ async function createIncomeTypesTable() {
       show_category BOOLEAN DEFAULT TRUE,
       show_payment_date BOOLEAN DEFAULT FALSE,
       show_reference_number BOOLEAN DEFAULT FALSE,
-      show_tax_amount BOOLEAN DEFAULT FALSE,
-      show_net_amount BOOLEAN DEFAULT FALSE,
-      show_total_amount BOOLEAN DEFAULT TRUE,
+
       show_payment_method BOOLEAN DEFAULT FALSE,
       show_payment_status BOOLEAN DEFAULT TRUE,
       show_currency BOOLEAN DEFAULT FALSE,
@@ -415,9 +413,7 @@ async function createIncomeTypesTable() {
       required_category BOOLEAN DEFAULT FALSE,
       required_payment_date BOOLEAN DEFAULT FALSE,
       required_reference_number BOOLEAN DEFAULT FALSE,
-      required_tax_amount BOOLEAN DEFAULT FALSE,
-      required_net_amount BOOLEAN DEFAULT FALSE,
-      required_total_amount BOOLEAN DEFAULT FALSE,
+
       required_payment_method BOOLEAN DEFAULT FALSE,
       required_payment_status BOOLEAN DEFAULT FALSE,
       required_currency BOOLEAN DEFAULT FALSE,
@@ -537,9 +533,7 @@ async function createIncomesDataTable() {
       category_id BIGINT UNSIGNED DEFAULT NULL,
       payment_date DATE DEFAULT NULL,
       reference_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-      tax_amount DECIMAL(15,2) DEFAULT NULL,
-      net_amount DECIMAL(15,2) DEFAULT NULL,
-      total_amount DECIMAL(15,2) DEFAULT NULL,
+
       payment_method ENUM('transferencia', 'cheque', 'efectivo', 'tarjeta', 'otro') DEFAULT NULL,
       payment_status ENUM('pendiente', 'parcial', 'pagado', 'anulado') DEFAULT NULL,
       currency VARCHAR(10) COLLATE utf8mb4_unicode_ci DEFAULT 'CLP',

@@ -47,9 +47,6 @@ export async function getAllIncomeTypes(organizationId, onlyActive = true) {
       show_category,
       show_payment_date,
       show_reference_number,
-      show_tax_amount,
-      show_net_amount,
-      show_total_amount,
       show_payment_method,
       show_payment_status,
       show_currency,
@@ -63,9 +60,6 @@ export async function getAllIncomeTypes(organizationId, onlyActive = true) {
       required_category,
       required_payment_date,
       required_reference_number,
-      required_tax_amount,
-      required_net_amount,
-      required_total_amount,
       required_payment_method,
       required_payment_status,
       required_currency,
@@ -104,9 +98,6 @@ export async function getIncomeTypeById(id, organizationId) {
       show_category,
       show_payment_date,
       show_reference_number,
-      show_tax_amount,
-      show_net_amount,
-      show_total_amount,
       show_payment_method,
       show_payment_status,
       show_currency,
@@ -120,9 +111,6 @@ export async function getIncomeTypeById(id, organizationId) {
       required_category,
       required_payment_date,
       required_reference_number,
-      required_tax_amount,
-      required_net_amount,
-      required_total_amount,
       required_payment_method,
       required_payment_status,
       required_currency,
@@ -157,9 +145,6 @@ export async function createIncomeType(incomeTypeData) {
       show_category,
       show_payment_date,
       show_reference_number,
-      show_tax_amount,
-      show_net_amount,
-      show_total_amount,
       show_payment_method,
       show_payment_status,
       show_currency,
@@ -173,9 +158,6 @@ export async function createIncomeType(incomeTypeData) {
       required_category,
       required_payment_date,
       required_reference_number,
-      required_tax_amount,
-      required_net_amount,
-      required_total_amount,
       required_payment_method,
       required_payment_status,
       required_currency,
@@ -183,7 +165,7 @@ export async function createIncomeType(incomeTypeData) {
       required_invoice_number,
       is_active,
       created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const values = [
@@ -196,9 +178,6 @@ export async function createIncomeType(incomeTypeData) {
     incomeTypeData.show_category ?? true,
     incomeTypeData.show_payment_date ?? false,
     incomeTypeData.show_reference_number ?? false,
-    incomeTypeData.show_tax_amount ?? false,
-    incomeTypeData.show_net_amount ?? false,
-    incomeTypeData.show_total_amount ?? true,
     incomeTypeData.show_payment_method ?? false,
     incomeTypeData.show_payment_status ?? true,
     incomeTypeData.show_currency ?? false,
@@ -212,9 +191,6 @@ export async function createIncomeType(incomeTypeData) {
     incomeTypeData.required_category ?? false,
     incomeTypeData.required_payment_date ?? false,
     incomeTypeData.required_reference_number ?? false,
-    incomeTypeData.required_tax_amount ?? false,
-    incomeTypeData.required_net_amount ?? false,
-    incomeTypeData.required_total_amount ?? false,
     incomeTypeData.required_payment_method ?? false,
     incomeTypeData.required_payment_status ?? false,
     incomeTypeData.required_currency ?? false,
@@ -235,7 +211,7 @@ export async function createIncomeType(incomeTypeData) {
  * @param {Object} incomeTypeData - Datos a actualizar
  */
 export async function updateIncomeType(id, organizationId, incomeTypeData) {
-  const sql = `
+    const sql = `
     UPDATE income_types
     SET
       name = ?,
@@ -246,9 +222,6 @@ export async function updateIncomeType(id, organizationId, incomeTypeData) {
       show_category = ?,
       show_payment_date = ?,
       show_reference_number = ?,
-      show_tax_amount = ?,
-      show_net_amount = ?,
-      show_total_amount = ?,
       show_payment_method = ?,
       show_payment_status = ?,
       show_currency = ?,
@@ -262,9 +235,6 @@ export async function updateIncomeType(id, organizationId, incomeTypeData) {
       required_category = ?,
       required_payment_date = ?,
       required_reference_number = ?,
-      required_tax_amount = ?,
-      required_net_amount = ?,
-      required_total_amount = ?,
       required_payment_method = ?,
       required_payment_status = ?,
       required_currency = ?,
@@ -284,9 +254,6 @@ export async function updateIncomeType(id, organizationId, incomeTypeData) {
     incomeTypeData.show_category ?? true,
     incomeTypeData.show_payment_date ?? false,
     incomeTypeData.show_reference_number ?? false,
-    incomeTypeData.show_tax_amount ?? false,
-    incomeTypeData.show_net_amount ?? false,
-    incomeTypeData.show_total_amount ?? true,
     incomeTypeData.show_payment_method ?? false,
     incomeTypeData.show_payment_status ?? true,
     incomeTypeData.show_currency ?? false,
@@ -300,9 +267,6 @@ export async function updateIncomeType(id, organizationId, incomeTypeData) {
     incomeTypeData.required_category ?? false,
     incomeTypeData.required_payment_date ?? false,
     incomeTypeData.required_reference_number ?? false,
-    incomeTypeData.required_tax_amount ?? false,
-    incomeTypeData.required_net_amount ?? false,
-    incomeTypeData.required_total_amount ?? false,
     incomeTypeData.required_payment_method ?? false,
     incomeTypeData.required_payment_status ?? false,
     incomeTypeData.required_currency ?? false,

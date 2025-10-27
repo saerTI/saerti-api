@@ -109,6 +109,14 @@ export async function createIncomeType(req, res) {
     const organizationId = req.user?.organization_id || req.body.organization_id;
     const userId = req.user?.id;
 
+    // Verificar que el usuario tenga una organización
+    if (!organizationId) {
+      return res.status(400).json({
+        success: false,
+        message: 'El usuario debe pertenecer a una organización para crear tipos de ingreso'
+      });
+    }
+
     // Verificar nombre duplicado
     const nameExists = await IncomeTypeModel.incomeTypeNameExists(req.body.name, organizationId);
     if (nameExists) {
