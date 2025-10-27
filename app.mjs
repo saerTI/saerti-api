@@ -14,6 +14,7 @@ import authRoutes from './src/routes/authRoutes.mjs';
 import userRoutes from './src/routes/userRoutes.mjs';
 import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
 import incomeRoutes from './src/routes/incomeRoutes.mjs';
+import costCenterRoutes from './src/routes/costCenterRoutes.mjs';
 
 const app = express();
 
@@ -111,6 +112,7 @@ app.use(userRoutes);
 
 app.use(budgetSuggestionsRoutes);
 app.use('/api', incomeRoutes);
+app.use('/api/cost-centers', costCenterRoutes);
 
 // ============================================
 // ERROR HANDLERS
