@@ -365,15 +365,211 @@ async function createAccountingCostsTable() {
 }
 
 // ==========================================
-// TABLAS DE INGRESOS ANTIGUAS ELIMINADAS
+// SISTEMA DINÁMICO DE INGRESOS (4 TABLAS)
 // ==========================================
-// Las tablas incomes e income_categories fueron eliminadas.
-// Serán reemplazadas por el nuevo sistema dinámico con:
-// - income_types
-// - income_categories (nueva estructura)
-// - income_statuses
-// - incomes_data
+// Este archivo contiene las funciones para crear las tablas del sistema dinámico de ingresos
+// Se agregará al archivo setup-unified.mjs
 
+// TABLA 1: income_types - Configuración de tipos de ingresos
+async function createIncomeTypesTable() {
+  const exists = await checkTableExists('income_types');
+  if (exists) {
+    console.log('ℹ️ Tabla income_types ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS income_types (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      -- Información básica
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      icon VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT 'dollar-sign',
+      color VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT '#3B82F6',
+
+      -- Campos base (siempre visibles)
+      -- name, description, notes, date, status_id, cost_center_id son base
+
+      -- Control de visibilidad de campos opcionales (show_*)
+      show_amount BOOLEAN DEFAULT TRUE,
+      show_category BOOLEAN DEFAULT TRUE,
+      show_payment_date BOOLEAN DEFAULT FALSE,
+      show_reference_number BOOLEAN DEFAULT FALSE,
+      show_tax_amount BOOLEAN DEFAULT FALSE,
+      show_net_amount BOOLEAN DEFAULT FALSE,
+      show_total_amount BOOLEAN DEFAULT TRUE,
+      show_payment_method BOOLEAN DEFAULT FALSE,
+      show_payment_status BOOLEAN DEFAULT TRUE,
+      show_currency BOOLEAN DEFAULT FALSE,
+      show_exchange_rate BOOLEAN DEFAULT FALSE,
+      show_invoice_number BOOLEAN DEFAULT FALSE,
+
+      -- Control de campos requeridos (required_*)
+      required_name BOOLEAN DEFAULT TRUE,
+      required_date BOOLEAN DEFAULT TRUE,
+      required_status BOOLEAN DEFAULT TRUE,
+      required_cost_center BOOLEAN DEFAULT TRUE,
+      required_amount BOOLEAN DEFAULT FALSE,
+      required_category BOOLEAN DEFAULT FALSE,
+      required_payment_date BOOLEAN DEFAULT FALSE,
+      required_reference_number BOOLEAN DEFAULT FALSE,
+      required_tax_amount BOOLEAN DEFAULT FALSE,
+      required_net_amount BOOLEAN DEFAULT FALSE,
+      required_total_amount BOOLEAN DEFAULT FALSE,
+      required_payment_method BOOLEAN DEFAULT FALSE,
+      required_payment_status BOOLEAN DEFAULT FALSE,
+      required_currency BOOLEAN DEFAULT FALSE,
+      required_exchange_rate BOOLEAN DEFAULT FALSE,
+      required_invoice_number BOOLEAN DEFAULT FALSE,
+
+      -- Metadata
+      is_active BOOLEAN DEFAULT TRUE,
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      updated_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      INDEX idx_organization (organization_id),
+      INDEX idx_active (is_active),
+      UNIQUE KEY unique_org_name (organization_id, name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla income_types creada (sistema dinámico)');
+}
+
+// TABLA 2: income_categories - Categorías específicas por tipo
+async function createIncomeCategoriesTableNew() {
+  const exists = await checkTableExists('income_categories');
+  if (exists) {
+    console.log('ℹ️ Tabla income_categories ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS income_categories (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      income_type_id BIGINT UNSIGNED NOT NULL,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      color VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT '#6B7280',
+
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (income_type_id) REFERENCES income_types(id) ON DELETE CASCADE,
+
+      INDEX idx_income_type (income_type_id),
+      INDEX idx_organization (organization_id),
+      INDEX idx_active (is_active),
+      UNIQUE KEY unique_type_name (income_type_id, name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla income_categories creada (por tipo)');
+}
+
+// TABLA 3: income_statuses - Estados específicos por tipo
+async function createIncomeStatusesTable() {
+  const exists = await checkTableExists('income_statuses');
+  if (exists) {
+    console.log('ℹ️ Tabla income_statuses ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS income_statuses (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      income_type_id BIGINT UNSIGNED NOT NULL,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      color VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT '#6B7280',
+      is_final BOOLEAN DEFAULT FALSE COMMENT 'Indica si es un estado final (ej: pagado, cancelado)',
+
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (income_type_id) REFERENCES income_types(id) ON DELETE CASCADE,
+
+      INDEX idx_income_type (income_type_id),
+      INDEX idx_organization (organization_id),
+      INDEX idx_active (is_active),
+      INDEX idx_final (is_final),
+      UNIQUE KEY unique_type_name (income_type_id, name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla income_statuses creada (por tipo)');
+}
+
+// TABLA 4: incomes_data - Datos unificados con todas las columnas posibles
+async function createIncomesDataTable() {
+  const exists = await checkTableExists('incomes_data');
+  if (exists) {
+    console.log('ℹ️ Tabla incomes_data ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS incomes_data (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      income_type_id BIGINT UNSIGNED NOT NULL,
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+
+      -- Campos base (siempre presentes, configurables como requeridos)
+      name VARCHAR(255) COLLATE utf8mb4_unicode_ci,
+      description TEXT COLLATE utf8mb4_unicode_ci,
+      notes TEXT COLLATE utf8mb4_unicode_ci,
+      date DATE,
+      status_id BIGINT UNSIGNED,
+      cost_center_id BIGINT UNSIGNED,
+
+      -- Campos opcionales (usados solo si show_* = true en income_type)
+      amount DECIMAL(15,2) DEFAULT NULL,
+      category_id BIGINT UNSIGNED DEFAULT NULL,
+      payment_date DATE DEFAULT NULL,
+      reference_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+      tax_amount DECIMAL(15,2) DEFAULT NULL,
+      net_amount DECIMAL(15,2) DEFAULT NULL,
+      total_amount DECIMAL(15,2) DEFAULT NULL,
+      payment_method ENUM('transferencia', 'cheque', 'efectivo', 'tarjeta', 'otro') DEFAULT NULL,
+      payment_status ENUM('pendiente', 'parcial', 'pagado', 'anulado') DEFAULT NULL,
+      currency VARCHAR(10) COLLATE utf8mb4_unicode_ci DEFAULT 'CLP',
+      exchange_rate DECIMAL(10,4) DEFAULT NULL,
+      invoice_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+
+      -- Metadata
+      created_by BIGINT UNSIGNED DEFAULT NULL,
+      updated_by BIGINT UNSIGNED DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      FOREIGN KEY (income_type_id) REFERENCES income_types(id) ON DELETE RESTRICT,
+      FOREIGN KEY (status_id) REFERENCES income_statuses(id) ON DELETE RESTRICT,
+      FOREIGN KEY (category_id) REFERENCES income_categories(id) ON DELETE SET NULL,
+      FOREIGN KEY (cost_center_id) REFERENCES cost_centers(id) ON DELETE RESTRICT,
+      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      INDEX idx_organization (organization_id),
+      INDEX idx_income_type (income_type_id),
+      INDEX idx_date (date),
+      INDEX idx_status (status_id),
+      INDEX idx_cost_center (cost_center_id),
+      INDEX idx_category (category_id),
+      INDEX idx_payment_status (payment_status)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+  `);
+  console.log('✅ Tabla incomes_data creada (datos unificados)');
+}
 // ==========================================
 // TABLA: PROJECTS (multi-tenant)
 // ==========================================
@@ -715,6 +911,13 @@ async function setup() {
     await createAccountingCostsTable();
     await createProjectsTable();
     await createBudgetAnalysesTable();
+
+    console.log('\n💰 PASO 3.5: Creando sistema dinámico de ingresos...\n');
+    await createIncomeTypesTable();
+    await createIncomeStatusesTable();
+    await createIncomeCategoriesTableNew();
+    await createIncomesDataTable();
+
     
     console.log('\n🔄 PASO 4: Creando vista multidimensional...\n');
     await createMultidimensionalView();
@@ -729,7 +932,8 @@ async function setup() {
     console.log('   ✅ Soporte Clerk (clerk_id, organization_id)');
     console.log('   ✅ Multi-tenant en todas las tablas principales');
     console.log('   ✅ Vista multidimensional_costs_view funcionando');
-    console.log('   ✅ 10 tablas creadas con relaciones correctas');
+    console.log('   ✅ 14 tablas creadas con relaciones correctas');
+    console.log('   ✅ Sistema dinámico de ingresos (4 tablas)');
     console.log('   ✅ Usuario admin creado (admin@saer.cl / admin)');
     console.log('   ✅ Collation uniforme (utf8mb4_unicode_ci)');
     console.log('\n🚀 Tu sistema está listo para usar!\n');
