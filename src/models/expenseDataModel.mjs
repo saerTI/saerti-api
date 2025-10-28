@@ -209,13 +209,16 @@ export async function createExpense(expenseData) {
       category_id,
       payment_date,
       reference_number,
+      tax_amount,
+      net_amount,
+      total_amount,
       payment_method,
       payment_status,
       currency,
       exchange_rate,
       invoice_number,
       created_by
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const values = [
@@ -231,6 +234,9 @@ export async function createExpense(expenseData) {
     expenseData.category_id || null,
     expenseData.payment_date || null,
     expenseData.reference_number || null,
+    expenseData.tax_amount || null,
+    expenseData.net_amount || null,
+    expenseData.total_amount || null,
     expenseData.payment_method || null,
     expenseData.payment_status || null,
     expenseData.currency || 'CLP',
@@ -283,6 +289,9 @@ export async function updateExpense(id, organizationId, expenseData) {
     expenseData.category_id || null,
     expenseData.payment_date || null,
     expenseData.reference_number || null,
+    expenseData.tax_amount || null,
+    expenseData.net_amount || null,
+    expenseData.total_amount || null,
     expenseData.payment_method || null,
     expenseData.payment_status || null,
     expenseData.currency || 'CLP',

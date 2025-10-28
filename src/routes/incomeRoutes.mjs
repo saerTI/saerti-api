@@ -4,6 +4,7 @@
 import express from 'express';
 import * as IncomeTypeController from '../controllers/incomeTypeController.mjs';
 import * as IncomeDataController from '../controllers/incomeDataController.mjs';
+import * as IncomeDashboardController from '../controllers/incomeDashboardController.mjs';
 
 const router = express.Router();
 
@@ -45,5 +46,15 @@ router.delete('/incomes/:id', IncomeDataController.deleteIncome);
 
 // Estadísticas y agrupaciones
 router.get('/income-types/:typeId/incomes-by-status', IncomeDataController.getIncomesByStatus);
+
+// ============================================
+// DASHBOARD - Endpoints para resumen y análisis
+// ============================================
+router.get('/incomes/dashboard/summary', IncomeDashboardController.getIncomeDashboardSummary);
+router.get('/incomes/dashboard/by-type', IncomeDashboardController.getIncomesByType);
+router.get('/incomes/dashboard/by-category', IncomeDashboardController.getIncomesByCategory);
+router.get('/incomes/dashboard/cash-flow', IncomeDashboardController.getIncomeCashFlow);
+router.get('/incomes/dashboard/trends', IncomeDashboardController.getIncomeTrends);
+router.get('/incomes/dashboard/category-by-period', IncomeDashboardController.getIncomesCategoryByPeriod);
 
 export default router;

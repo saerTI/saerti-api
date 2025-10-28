@@ -4,6 +4,7 @@
 import express from 'express';
 import * as ExpenseTypeController from '../controllers/expenseTypeController.mjs';
 import * as ExpenseDataController from '../controllers/expenseDataController.mjs';
+import * as ExpenseDashboardController from '../controllers/expenseDashboardController.mjs';
 
 const router = express.Router();
 
@@ -45,5 +46,15 @@ router.delete('/expenses/:id', ExpenseDataController.deleteExpense);
 
 // Estadísticas y agrupaciones
 router.get('/expense-types/:typeId/expenses-by-status', ExpenseDataController.getExpensesByStatus);
+
+// ============================================
+// DASHBOARD - Endpoints para resumen y análisis
+// ============================================
+router.get('/expenses/dashboard/summary', ExpenseDashboardController.getExpenseDashboardSummary);
+router.get('/expenses/dashboard/by-type', ExpenseDashboardController.getExpensesByType);
+router.get('/expenses/dashboard/by-category', ExpenseDashboardController.getExpensesByCategory);
+router.get('/expenses/dashboard/cash-flow', ExpenseDashboardController.getExpenseCashFlow);
+router.get('/expenses/dashboard/trends', ExpenseDashboardController.getExpenseTrends);
+router.get('/expenses/dashboard/category-by-period', ExpenseDashboardController.getExpensesCategoryByPeriod);
 
 export default router;
