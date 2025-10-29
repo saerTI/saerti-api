@@ -272,3 +272,87 @@ export async function getExpensesByStatus(req, res) {
     });
   }
 }
+
+/**
+ * POST /api/expenses/bulk
+ * Crear múltiples egresos en una sola transacción
+ */
+export async function bulkCreateExpenses(req, res) {
+  try {
+    const organizationId = req.user?.organization_id || req.body.organization_id;
+    const userId = req.user?.id;
+    const { expenses } = req.body;
+
+    if (!Array.isArray(expenses) || expenses.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere un array de egresos para crear'
+      });
+    }
+
+    const results = {
+      success: [],
+      errors: [],
+      total: expenses.length
+    };
+
+    // Validar y preparar todos los egresos
+    for (let i = 0; i < expenses.length; i++) {
+      const expense = expenses[i];
+
+      try {
+        // Validar datos según configuración del tipo
+        const validation = await validateExpenseData(expense, expense.expense_type_id, organizationId);
+
+        if (!validation.valid) {
+          results.errors.push({
+            index: i,
+            row: i + 2, // +2 porque Excel empieza en 1 y la primera fila es el header
+            data: expense,
+            errors: validation.errors
+          });
+          continue;
+        }
+
+        const expenseData = {
+          ...expense,
+          organization_id: organizationId,
+          created_by: userId
+        };
+
+        const newId = await ExpenseDataModel.createExpense(expenseData);
+
+        results.success.push({
+          index: i,
+          row: i + 2,
+          id: newId,
+          data: expense
+        });
+      } catch (error) {
+        results.errors.push({
+          index: i,
+          row: i + 2,
+          data: expense,
+          errors: [{ message: error.message }]
+        });
+      }
+    }
+
+    const statusCode = results.errors.length === 0 ? 201 : 207; // 207 = Multi-Status
+
+    res.status(statusCode).json({
+      success: results.errors.length === 0,
+      message: results.errors.length === 0
+        ? `Se crearon ${results.success.length} egresos exitosamente`
+        : `Se crearon ${results.success.length} egresos. ${results.errors.length} fallaron.`,
+      data: results
+    });
+  } catch (error) {
+    console.error('Error in bulk create expenses:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al crear egresos masivamente',
+      error: error.message
+    });
+  }
+}

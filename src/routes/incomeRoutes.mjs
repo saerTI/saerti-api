@@ -36,9 +36,10 @@ router.delete('/income-statuses/:id', IncomeTypeController.deleteStatus);
 // INCOMES DATA - Datos de ingresos
 // ============================================
 
-// CRUD de ingresos
+// CRUD de ingresos (rutas específicas primero, luego las genéricas con parámetros)
 router.get('/incomes', IncomeDataController.getAllIncomes);
 router.get('/incomes/stats', IncomeDataController.getIncomeStats);
+router.post('/incomes/bulk', IncomeDataController.bulkCreateIncomes);
 router.get('/incomes/:id', IncomeDataController.getIncomeById);
 router.post('/incomes', IncomeDataController.createIncome);
 router.put('/incomes/:id', IncomeDataController.updateIncome);

@@ -36,9 +36,10 @@ router.delete('/expense-statuses/:id', ExpenseTypeController.deleteStatus);
 // EXPENSES DATA - Datos de egresos
 // ============================================
 
-// CRUD de egresos
+// CRUD de egresos (rutas específicas primero, luego las genéricas con parámetros)
 router.get('/expenses', ExpenseDataController.getAllExpenses);
 router.get('/expenses/stats', ExpenseDataController.getExpenseStats);
+router.post('/expenses/bulk', ExpenseDataController.bulkCreateExpenses);
 router.get('/expenses/:id', ExpenseDataController.getExpenseById);
 router.post('/expenses', ExpenseDataController.createExpense);
 router.put('/expenses/:id', ExpenseDataController.updateExpense);

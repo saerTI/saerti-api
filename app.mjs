@@ -16,6 +16,7 @@ import budgetSuggestionsRoutes from './src/routes/budgetSuggestionsRoutes.mjs';
 import incomeRoutes from './src/routes/incomeRoutes.mjs';
 import expenseRoutes from './src/routes/expenseRoutes.mjs';
 import costCenterRoutes from './src/routes/costCenterRoutes.mjs';
+import organizationRoutes from './src/routes/organizationRoutes.mjs';
 
 const app = express();
 
@@ -110,6 +111,7 @@ app.use((req, res, next) => {
 
 app.use(authRoutes);
 app.use(userRoutes);
+app.use(organizationRoutes);
 
 app.use(budgetSuggestionsRoutes);
 app.use('/api', incomeRoutes);

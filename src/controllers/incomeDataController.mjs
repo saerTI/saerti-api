@@ -272,3 +272,87 @@ export async function getIncomesByStatus(req, res) {
     });
   }
 }
+
+/**
+ * POST /api/incomes/bulk
+ * Crear múltiples ingresos en una sola transacción
+ */
+export async function bulkCreateIncomes(req, res) {
+  try {
+    const organizationId = req.user?.organization_id || req.body.organization_id;
+    const userId = req.user?.id;
+    const { incomes } = req.body;
+
+    if (!Array.isArray(incomes) || incomes.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Se requiere un array de ingresos para crear'
+      });
+    }
+
+    const results = {
+      success: [],
+      errors: [],
+      total: incomes.length
+    };
+
+    // Validar y preparar todos los ingresos
+    for (let i = 0; i < incomes.length; i++) {
+      const income = incomes[i];
+
+      try {
+        // Validar datos según configuración del tipo
+        const validation = await validateIncomeData(income, income.income_type_id, organizationId);
+
+        if (!validation.valid) {
+          results.errors.push({
+            index: i,
+            row: i + 2, // +2 porque Excel empieza en 1 y la primera fila es el header
+            data: income,
+            errors: validation.errors
+          });
+          continue;
+        }
+
+        const incomeData = {
+          ...income,
+          organization_id: organizationId,
+          created_by: userId
+        };
+
+        const newId = await IncomeDataModel.createIncome(incomeData);
+
+        results.success.push({
+          index: i,
+          row: i + 2,
+          id: newId,
+          data: income
+        });
+      } catch (error) {
+        results.errors.push({
+          index: i,
+          row: i + 2,
+          data: income,
+          errors: [{ message: error.message }]
+        });
+      }
+    }
+
+    const statusCode = results.errors.length === 0 ? 201 : 207; // 207 = Multi-Status
+
+    res.status(statusCode).json({
+      success: results.errors.length === 0,
+      message: results.errors.length === 0
+        ? `Se crearon ${results.success.length} ingresos exitosamente`
+        : `Se crearon ${results.success.length} ingresos. ${results.errors.length} fallaron.`,
+      data: results
+    });
+  } catch (error) {
+    console.error('Error in bulk create incomes:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error al crear ingresos masivamente',
+      error: error.message
+    });
+  }
+}
