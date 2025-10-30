@@ -45,7 +45,10 @@ export const clerkAuth = async (req, res, next) => {
         });
         clerkOrganizations = orgMemberships.data || [];
       } catch (orgError) {
-        console.warn('[Clerk Auth] ⚠️ No se pudieron obtener organizaciones:', orgError.message);
+        // Silenciar error Forbidden - es esperado si la API key no tiene permisos de organizaciones
+        if (orgError.message !== 'Forbidden') {
+          console.warn('[Clerk Auth] ⚠️ No se pudieron obtener organizaciones:', orgError.message);
+        }
       }
     } catch (userError) {
       console.warn('[Clerk Auth] ⚠️ Usando claims del token');
@@ -61,19 +64,10 @@ export const clerkAuth = async (req, res, next) => {
       organizationId = clerkOrganizations[0].organization.id;
       console.log(`[Clerk Auth] ✅ Usuario pertenece a organización: ${organizationId}`);
     } else {
-      // Auto-crear organización personal si no tiene ninguna
-      try {
-        const newOrg = await clerkClient.organizations.createOrganization({
-          name: `${clerkName}'s Organization`,
-          createdBy: sessionClaims.sub
-        });
-        organizationId = newOrg.id;
-        console.log(`[Clerk Auth] ✅ Organización creada automáticamente: ${organizationId}`);
-      } catch (createOrgError) {
-        console.error('[Clerk Auth] ❌ No se pudo crear organización:', createOrgError.message);
-        // Usar un ID temporal basado en el usuario si falla
-        organizationId = `user_${sessionClaims.sub}`;
-      }
+      // Si no tiene organizaciones, usar un ID basado en el usuario
+      // Nota: El usuario debe crear o unirse a una organización desde Clerk Dashboard
+      organizationId = `personal_${sessionClaims.sub}`;
+      console.log(`[Clerk Auth] ⚠️ Usuario sin organización, usando ID personal: ${organizationId}`);
     }
 
     // Sincronizar con BD local (con manejo de race conditions)
@@ -106,14 +100,35 @@ export const clerkAuth = async (req, res, next) => {
     } else {
       localUser = localUsers[0];
 
-      // Actualizar organization_id si cambió o no existía
-      if (!localUser.organization_id || localUser.organization_id !== organizationId) {
+      // ✅ RESPETAR EL ORGANIZATION_ID DE LA BD LOCAL (no sobrescribir)
+      // Solo actualizar si:
+      // 1. No tiene organization_id (usuario antiguo)
+      // 2. Ya no es miembro de su organización actual en Clerk
+      if (!localUser.organization_id) {
+        // Usuario sin organización asignada - asignar la primera de Clerk
         await pool.query(
           'UPDATE users SET organization_id = ? WHERE id = ?',
           [organizationId, localUser.id]
         );
         localUser.organization_id = organizationId;
-        console.log(`[Clerk Auth] ✅ Organization ID actualizado para usuario ${localUser.id}`);
+        console.log(`[Clerk Auth] ✅ Organization ID inicial asignado para usuario ${localUser.id}: ${organizationId}`);
+      } else {
+        // Usuario ya tiene organización - validar que siga siendo miembro
+        const currentOrgId = localUser.organization_id;
+        const isMember = clerkOrganizations.some(
+          om => om.organization.id === currentOrgId
+        );
+
+        if (!isMember && clerkOrganizations.length > 0) {
+          // Ya no es miembro de su org actual - cambiar a la primera disponible
+          console.warn(`[Clerk Auth] ⚠️ Usuario ${localUser.id} ya no es miembro de org ${currentOrgId}, cambiando a ${organizationId}`);
+          await pool.query(
+            'UPDATE users SET organization_id = ? WHERE id = ?',
+            [organizationId, localUser.id]
+          );
+          localUser.organization_id = organizationId;
+        }
+        // Si es miembro, mantener el valor de la BD (no sobrescribir)
       }
     }
 

@@ -530,6 +530,9 @@ async function createIncomesDataTable() {
 
       -- Campos opcionales (usados solo si show_* = true en income_type)
       amount DECIMAL(15,2) DEFAULT NULL,
+      tax_amount DECIMAL(15,2) DEFAULT NULL COMMENT 'Monto de impuestos/IVA',
+      net_amount DECIMAL(15,2) DEFAULT NULL COMMENT 'Monto neto sin impuestos',
+      total_amount DECIMAL(15,2) DEFAULT NULL COMMENT 'Monto total con impuestos',
       category_id BIGINT UNSIGNED DEFAULT NULL,
       payment_date DATE DEFAULT NULL,
       reference_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -737,6 +740,9 @@ async function createExpensesDataTable() {
 
       -- Campos opcionales (usados solo si show_* = true en expense_type)
       amount DECIMAL(15,2) DEFAULT NULL,
+      tax_amount DECIMAL(15,2) DEFAULT NULL COMMENT 'Monto de impuestos/IVA',
+      net_amount DECIMAL(15,2) DEFAULT NULL COMMENT 'Monto neto sin impuestos',
+      total_amount DECIMAL(15,2) DEFAULT NULL COMMENT 'Monto total con impuestos',
       category_id BIGINT UNSIGNED DEFAULT NULL,
       payment_date DATE DEFAULT NULL,
       reference_number VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -919,6 +925,55 @@ async function createBudgetAnalysesTable() {
     COMMENT 'Historial de análisis del Budget Analyzer'
   `);
   console.log('✅ Tabla budget_analyses creada (multi-tenant)');
+}
+
+// ==========================================
+// TABLA: ORGANIZATION_INVITATIONS
+// ==========================================
+async function createOrganizationInvitationsTable() {
+  const exists = await checkTableExists('organization_invitations');
+  if (exists) {
+    console.log('ℹ️ Tabla organization_invitations ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS organization_invitations (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+
+      -- Organización y destinatario
+      organization_id VARCHAR(255) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Clerk organization ID',
+      email VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+      role ENUM('admin', 'manager', 'user') DEFAULT 'admin' COMMENT 'Rol asignado al aceptar',
+
+      -- Usuario que invitó
+      invited_by BIGINT UNSIGNED COMMENT 'Usuario que envió la invitación',
+
+      -- Estado y token
+      status ENUM('pending', 'accepted', 'rejected', 'expired') DEFAULT 'pending',
+      token VARCHAR(255) UNIQUE NOT NULL COMMENT 'Token único para aceptar/rechazar',
+
+      -- Fechas
+      expires_at TIMESTAMP NOT NULL COMMENT 'Fecha de expiración (24 horas)',
+      accepted_at TIMESTAMP NULL COMMENT 'Fecha de aceptación',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+      -- Foreign Keys
+      FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE SET NULL,
+
+      -- Índices
+      INDEX idx_organization (organization_id),
+      INDEX idx_email (email),
+      INDEX idx_token (token),
+      INDEX idx_status (status),
+      INDEX idx_expires (expires_at),
+      INDEX idx_org_status (organization_id, status),
+      INDEX idx_email_status (email, status)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    COMMENT 'Invitaciones a organizaciones con tokens de un solo uso'
+  `);
+  console.log('✅ Tabla organization_invitations creada (sistema de invitaciones)');
 }
 
 // ==========================================
@@ -1113,6 +1168,7 @@ async function setup() {
     await createAccountingCostsTable();
     await createProjectsTable();
     await createBudgetAnalysesTable();
+    await createOrganizationInvitationsTable();
 
     console.log('\n💰 PASO 3.5: Creando sistema dinámico de ingresos...\n');
     await createIncomeTypesTable();
@@ -1139,9 +1195,10 @@ async function setup() {
     console.log('   ✅ Soporte Clerk (clerk_id, organization_id)');
     console.log('   ✅ Multi-tenant en todas las tablas principales');
     console.log('   ✅ Vista multidimensional_costs_view funcionando');
-    console.log('   ✅ 18 tablas creadas con relaciones correctas');
+    console.log('   ✅ 19 tablas creadas con relaciones correctas');
     console.log('   ✅ Sistema dinámico de ingresos (4 tablas)');
     console.log('   ✅ Sistema dinámico de egresos (4 tablas)');
+    console.log('   ✅ Sistema de invitaciones multi-tenant');
     console.log('   ✅ Usuario admin creado (admin@saer.cl / admin)');
     console.log('   ✅ Collation uniforme (utf8mb4_unicode_ci)');
     console.log('\n🚀 Tu sistema está listo para usar!\n');

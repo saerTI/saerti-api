@@ -3,7 +3,8 @@ import { Router } from 'express';
 import {
   getCurrentOrganization,
   getUserOrganizations,
-  switchOrganization
+  switchOrganization,
+  getMembers
 } from '../controllers/organizationController.mjs';
 
 const router = Router();
@@ -17,5 +18,8 @@ router.get('/api/organizations', getUserOrganizations);
 
 // POST /api/organizations/switch - Cambiar organización activa
 router.post('/api/organizations/switch', switchOrganization);
+
+// GET /api/organizations/:orgId/members - Listar miembros de una organización
+router.get('/api/organizations/:orgId/members', getMembers);
 
 export default router;

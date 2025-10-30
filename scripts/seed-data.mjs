@@ -1,7 +1,38 @@
 // Script completo para generar datos dummy de ingresos y egresos
 import { pool } from '../src/config/database.mjs';
+import readline from 'readline';
 
-const ORGANIZATION_ID = 'test';
+// Función para pedir input al usuario
+function askQuestion(query) {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise(resolve => rl.question(query, ans => {
+    rl.close();
+    resolve(ans);
+  }));
+}
+
+// Obtener organization_id de los argumentos de línea de comandos o preguntar
+let ORGANIZATION_ID = process.argv[2];
+
+if (!ORGANIZATION_ID) {
+  console.log('🏢 Seed de datos dummy para SAER\n');
+  console.log('Este script generará datos de ejemplo para una organización.');
+  console.log('Necesitas proporcionar el ID de la organización.\n');
+
+  ORGANIZATION_ID = await askQuestion('Ingresa el Organization ID: ');
+
+  if (!ORGANIZATION_ID || !ORGANIZATION_ID.trim()) {
+    console.error('\n❌ Error: El organization_id no puede estar vacío');
+    process.exit(1);
+  }
+
+  ORGANIZATION_ID = ORGANIZATION_ID.trim();
+  console.log(`\n✅ Usando organization_id: ${ORGANIZATION_ID}\n`);
+}
 
 // Configuración de tipos de ingresos con sus categorías y estados
 const incomeTypesConfig = [

@@ -17,6 +17,7 @@ import incomeRoutes from './src/routes/incomeRoutes.mjs';
 import expenseRoutes from './src/routes/expenseRoutes.mjs';
 import costCenterRoutes from './src/routes/costCenterRoutes.mjs';
 import organizationRoutes from './src/routes/organizationRoutes.mjs';
+import invitationRoutes from './src/routes/invitationRoutes.mjs';
 
 const app = express();
 
@@ -94,13 +95,14 @@ app.use((req, res, next) => {
   const publicPaths = [
     '/api/health',
     '/api/auth/login',
-    '/api/auth/register'
+    '/api/auth/register',
+    '/api/invitations/'  // Permitir acceso público a invitaciones (para aceptar/ver)
   ];
-  
+
   if (publicPaths.some(path => req.path.startsWith(path))) {
     return next();
   }
-  
+
   // Aplicar clerkAuth a todo lo demás
   return clerkAuth(req, res, next);
 });
@@ -112,6 +114,7 @@ app.use((req, res, next) => {
 app.use(authRoutes);
 app.use(userRoutes);
 app.use(organizationRoutes);
+app.use('/api', invitationRoutes);
 
 app.use(budgetSuggestionsRoutes);
 app.use('/api', incomeRoutes);

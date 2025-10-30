@@ -1,5 +1,6 @@
 // src/controllers/organizationController.mjs
 import { clerkClient } from '@clerk/clerk-sdk-node';
+import * as memberModel from '../models/memberModel.mjs';
 
 /**
  * Obtener la organización actual del usuario autenticado
@@ -122,6 +123,96 @@ export async function switchOrganization(req, res) {
     return res.status(500).json({
       success: false,
       message: 'Error al cambiar de organización'
+    });
+  }
+}
+
+/**
+ * Listar miembros de una organización
+ * GET /api/organizations/:orgId/members
+ */
+export async function getMembers(req, res) {
+  try {
+    const { orgId } = req.params;
+    const userOrgId = req.user.organization_id;
+
+    // Validar que el usuario pertenece a la organización
+    if (userOrgId !== orgId) {
+      return res.status(403).json({
+        success: false,
+        message: 'No tienes permisos para ver los miembros de esta organización'
+      });
+    }
+
+    // Obtener miembros desde Clerk (con roles)
+    let clerkMembers = [];
+    try {
+      const organizationMemberships = await clerkClient.organizations.getOrganizationMembershipList({
+        organizationId: orgId,
+        limit: 100
+      });
+
+      clerkMembers = organizationMemberships.data.map(membership => ({
+        clerkUserId: membership.publicUserData.userId,
+        email: membership.publicUserData.identifier,
+        firstName: membership.publicUserData.firstName,
+        lastName: membership.publicUserData.lastName,
+        imageUrl: membership.publicUserData.imageUrl,
+        role: membership.role, // 'org:admin' | 'org:member'
+        joinedAt: membership.createdAt
+      }));
+    } catch (clerkError) {
+      console.warn('Error obteniendo miembros desde Clerk:', clerkError.message);
+    }
+
+    // Obtener miembros desde BD local
+    const localMembers = await memberModel.getMembers(orgId);
+
+    // Combinar información de Clerk con BD local
+    const members = [];
+
+    for (const localMember of localMembers) {
+      const clerkMember = clerkMembers.find(cm => cm.clerkUserId === localMember.clerk_id);
+
+      // Contar datos del miembro
+      let dataCount = { total: 0 };
+      try {
+        dataCount = await memberModel.countDataByUser(localMember.id, orgId);
+      } catch (error) {
+        console.warn(`Error contando datos del usuario ${localMember.id}:`, error.message);
+      }
+
+      members.push({
+        id: localMember.id,
+        clerk_id: localMember.clerk_id,
+        email: localMember.email,
+        name: localMember.name,
+        role: clerkMember?.role || localMember.role, // Priorizar rol de Clerk
+        avatar: clerkMember?.imageUrl || null,
+        position: localMember.position,
+        joinedAt: clerkMember?.joinedAt || localMember.created_at,
+        dataCount: {
+          costCenters: dataCount.costCenters || 0,
+          projects: dataCount.projects || 0,
+          incomes: dataCount.incomes || 0,
+          expenses: dataCount.expenses || 0,
+          budgetAnalyses: dataCount.budgetAnalyses || 0,
+          total: dataCount.total || 0
+        }
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: members
+    });
+
+  } catch (error) {
+    console.error('[Organization Controller] Error getting members:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error al obtener miembros de la organización',
+      error: error.message
     });
   }
 }

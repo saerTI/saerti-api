@@ -7,10 +7,9 @@
   "scripts": {
     "start": "node server.mjs",
     "dev": "nodemon server.mjs",
-    "setup": "node scripts/setup.mjs",
-    "setup_db:force": "node scripts/setup-unified.mjs --force",
-    "setup:clerk": "node scripts/setup-clerk.mjs",
-    "db:reset": "node scripts/setup-clerk.mjs"
+    "db:setup": "node scripts/setup-database.mjs",
+    "db:setup:force": "node scripts/setup-database.mjs --force --yes",
+    "db:seed": "node scripts/seed-data.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.60.0",
@@ -29,6 +28,7 @@
     "pdf-parse": "^1.1.1",
     "pdf-poppler": "^0.2.1",
     "pdf2pic": "^2.1.1",
+    "resend": "^6.3.0",
     "sharp": "^0.34.3",
     "tesseract.js": "^6.0.1",
     "uuid": "^11.1.0"
