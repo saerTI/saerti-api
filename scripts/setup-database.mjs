@@ -1043,6 +1043,302 @@ async function createMultidimensionalView() {
   }
 }
 
+async function createUserServiceSubscriptionsTable() {
+  const exists = await checkTableExists('user_service_subscriptions');
+  if (exists) {
+    console.log('ℹ️ Tabla user_service_subscriptions ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS user_service_subscriptions (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      
+      -- Usuario y servicio
+      user_id BIGINT UNSIGNED NOT NULL,
+      clerk_user_id VARCHAR(255) COLLATE utf8mb4_unicode_ci COMMENT 'Clerk user ID',
+      service VARCHAR(50) NOT NULL COMMENT 'budget-analyzer o cash-flow',
+      tier VARCHAR(50) NOT NULL DEFAULT 'free' COMMENT 'free, starter, professional, enterprise',
+      
+      -- Estado de suscripción
+      active BOOLEAN DEFAULT TRUE,
+      started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      expires_at TIMESTAMP NULL COMMENT 'Null = no expira',
+      payment_status ENUM('trial', 'active', 'cancelled', 'expired') DEFAULT 'trial',
+      
+      -- Metadata de pago (para integración futura)
+      stripe_subscription_id VARCHAR(255) NULL,
+      stripe_customer_id VARCHAR(255) NULL,
+      flow_order_id VARCHAR(255) NULL,
+      
+      -- Timestamps
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      
+      -- Foreign Keys
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      
+      -- Indexes
+      INDEX idx_user_service (user_id, service),
+      INDEX idx_clerk_user (clerk_user_id),
+      INDEX idx_active (active),
+      INDEX idx_tier (tier),
+      INDEX idx_expires (expires_at),
+      UNIQUE KEY unique_user_service_active (user_id, service, active)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    COMMENT 'Suscripciones de usuarios a servicios'
+  `);
+  console.log('✅ Tabla user_service_subscriptions creada');
+}
+
+// TABLA: USER_SERVICE_METRICS
+async function createUserServiceMetricsTable() {
+  const exists = await checkTableExists('user_service_metrics');
+  if (exists) {
+    console.log('ℹ️ Tabla user_service_metrics ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS user_service_metrics (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      
+      -- Usuario y servicio
+      user_id BIGINT UNSIGNED NOT NULL,
+      service VARCHAR(50) NOT NULL COMMENT 'budget-analyzer o cash-flow',
+      metric_name VARCHAR(100) NOT NULL COMMENT 'daily_analyses, transactions, etc',
+      metric_value INT DEFAULT 0 COMMENT 'Valor actual de la métrica',
+      
+      -- Período de la métrica
+      period VARCHAR(50) NOT NULL COMMENT 'YYYY-MM-DD (daily), YYYY-MM (monthly), permanent',
+      
+      -- Control de reset
+      last_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      
+      -- Timestamps
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      
+      -- Foreign Keys
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      
+      -- Indexes
+      INDEX idx_user_service_metric (user_id, service, metric_name),
+      INDEX idx_period (period),
+      INDEX idx_updated (updated_at),
+      INDEX idx_user_period (user_id, period),
+      UNIQUE KEY unique_user_service_metric_period (user_id, service, metric_name, period)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    COMMENT 'Métricas de uso por usuario y servicio'
+  `);
+  console.log('✅ Tabla user_service_metrics creada');
+}
+
+// TABLA: USAGE_HISTORY
+async function createUsageHistoryTable() {
+  const exists = await checkTableExists('usage_history');
+  if (exists) {
+    console.log('ℹ️ Tabla usage_history ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS usage_history (
+      id BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      
+      -- Usuario y servicio
+      user_id BIGINT UNSIGNED NOT NULL,
+      service VARCHAR(50) NOT NULL,
+      action VARCHAR(100) NOT NULL COMMENT 'analysis_created, transaction_created, etc',
+      
+      -- Metadata del evento (JSON)
+      metadata JSON NULL COMMENT 'Datos adicionales del evento',
+      
+      -- Tracking
+      ip_address VARCHAR(45) NULL,
+      user_agent TEXT NULL,
+      
+      -- Timestamp
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      
+      -- Foreign Keys
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      
+      -- Indexes
+      INDEX idx_user_service (user_id, service),
+      INDEX idx_action (action),
+      INDEX idx_created (created_at),
+      INDEX idx_user_created (user_id, created_at DESC)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    COMMENT 'Historial de acciones para analytics'
+  `);
+  console.log('✅ Tabla usage_history creada');
+}
+
+// TABLA: SERVICE_FEATURES
+async function createServiceFeaturesTable() {
+  const exists = await checkTableExists('service_features');
+  if (exists) {
+    console.log('ℹ️ Tabla service_features ya existe');
+    return;
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS service_features (
+      id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+      
+      -- Servicio y tier
+      service VARCHAR(50) NOT NULL,
+      tier VARCHAR(50) NOT NULL,
+      feature_name VARCHAR(100) NOT NULL,
+      enabled BOOLEAN DEFAULT TRUE,
+      
+      -- Configuración específica (JSON)
+      config JSON NULL COMMENT 'Configuración específica de la feature',
+      
+      -- Timestamps
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      
+      -- Indexes
+      INDEX idx_service_tier (service, tier),
+      INDEX idx_feature (feature_name),
+      UNIQUE KEY unique_service_tier_feature (service, tier, feature_name)
+    ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    COMMENT 'Features disponibles por servicio y tier'
+  `);
+  console.log('✅ Tabla service_features creada');
+}
+
+// INSERTAR FEATURES POR DEFECTO
+async function insertDefaultServiceFeatures() {
+  try {
+    const [existing] = await conn.query('SELECT COUNT(*) as count FROM service_features');
+    if (existing[0].count > 0) {
+      console.log('ℹ️ Service features ya existen');
+      return;
+    }
+
+    // Features para Budget Analyzer
+    await conn.query(`
+      INSERT INTO service_features (service, tier, feature_name, enabled, config) VALUES
+      -- FREE
+      ('budget-analyzer', 'free', 'basic_analysis', TRUE, NULL),
+      ('budget-analyzer', 'free', 'pdf_upload', TRUE, '{"max_file_size_mb": 10}'),
+      
+      -- PRO
+      ('budget-analyzer', 'pro', 'basic_analysis', TRUE, NULL),
+      ('budget-analyzer', 'pro', 'pdf_upload', TRUE, '{"max_file_size_mb": 50}'),
+      ('budget-analyzer', 'pro', 'comparisons', TRUE, NULL),
+      ('budget-analyzer', 'pro', 'advanced_insights', TRUE, NULL),
+      
+      -- ENTERPRISE
+      ('budget-analyzer', 'enterprise', 'all', TRUE, NULL)
+    `);
+
+    // Features para Cash Flow
+    await conn.query(`
+      INSERT INTO service_features (service, tier, feature_name, enabled, config) VALUES
+      -- FREE
+      ('cash-flow', 'free', 'basic_cashflow', TRUE, NULL),
+      ('cash-flow', 'free', 'manual_entry', TRUE, NULL),
+      ('cash-flow', 'free', 'basic_reports', TRUE, NULL),
+      
+      -- STARTER
+      ('cash-flow', 'starter', 'basic_cashflow', TRUE, NULL),
+      ('cash-flow', 'starter', 'manual_entry', TRUE, NULL),
+      ('cash-flow', 'starter', 'basic_reports', TRUE, NULL),
+      ('cash-flow', 'starter', 'excel_export', TRUE, NULL),
+      ('cash-flow', 'starter', 'basic_projections', TRUE, NULL),
+      
+      -- PROFESSIONAL
+      ('cash-flow', 'professional', 'basic_cashflow', TRUE, NULL),
+      ('cash-flow', 'professional', 'manual_entry', TRUE, NULL),
+      ('cash-flow', 'professional', 'basic_reports', TRUE, NULL),
+      ('cash-flow', 'professional', 'excel_export', TRUE, NULL),
+      ('cash-flow', 'professional', 'pdf_export', TRUE, NULL),
+      ('cash-flow', 'professional', 'advanced_projections', TRUE, NULL),
+      ('cash-flow', 'professional', 'ai_insights', TRUE, NULL),
+      ('cash-flow', 'professional', 'multi_currency', TRUE, NULL),
+      ('cash-flow', 'professional', 'api_access', TRUE, NULL),
+      
+      -- ENTERPRISE
+      ('cash-flow', 'enterprise', 'all', TRUE, NULL)
+    `);
+
+    console.log('✅ Service features insertadas');
+  } catch (error) {
+    console.error('❌ Error insertando service features:', error);
+    throw error;
+  }
+}
+
+// VISTAS PARA ANALYTICS
+async function createMetricsViews() {
+  try {
+    await conn.query(`DROP VIEW IF EXISTS v_usage_summary`);
+    await conn.query(`
+      CREATE VIEW v_usage_summary AS
+      SELECT 
+        service,
+        COUNT(DISTINCT user_id) as total_users,
+        tier,
+        COUNT(*) as subscription_count,
+        SUM(CASE WHEN active = TRUE THEN 1 ELSE 0 END) as active_subscriptions
+      FROM user_service_subscriptions
+      GROUP BY service, tier
+    `);
+    console.log('✅ Vista v_usage_summary creada');
+
+    await conn.query(`DROP VIEW IF EXISTS v_current_user_metrics`);
+    await conn.query(`
+      CREATE VIEW v_current_user_metrics AS
+      SELECT 
+        um.user_id,
+        um.service,
+        us.tier,
+        um.metric_name,
+        um.metric_value,
+        um.period,
+        um.last_reset,
+        um.updated_at
+      FROM user_service_metrics um
+      LEFT JOIN user_service_subscriptions us 
+        ON um.user_id = us.user_id 
+        AND um.service = us.service 
+        AND us.active = TRUE
+    `);
+    console.log('✅ Vista v_current_user_metrics creada');
+
+  } catch (error) {
+    console.error('❌ Error creando vistas:', error);
+  }
+}
+
+// PROCEDIMIENTOS ALMACENADOS
+async function createMetricsProcedures() {
+  try {
+    await conn.query(`DROP PROCEDURE IF EXISTS cleanup_old_metrics`);
+    await conn.query(`
+      CREATE PROCEDURE cleanup_old_metrics(IN days_to_keep INT)
+      BEGIN
+        DELETE FROM user_service_metrics
+        WHERE updated_at < DATE_SUB(NOW(), INTERVAL days_to_keep DAY)
+          AND period NOT IN ('permanent');
+          
+        DELETE FROM usage_history
+        WHERE created_at < DATE_SUB(NOW(), INTERVAL days_to_keep DAY);
+        
+        SELECT ROW_COUNT() as rows_deleted;
+      END
+    `);
+    console.log('✅ Procedimiento cleanup_old_metrics creado');
+
+  } catch (error) {
+    console.error('❌ Error creando procedimientos:', error);
+  }
+}
+
+
 // ==========================================
 // INSERTAR DATOS INICIALES
 // ==========================================
@@ -1182,6 +1478,13 @@ async function setup() {
     await createExpenseCategoriesTable();
     await createExpensesDataTable();
 
+    // ✅ AGREGAR ESTO AQUÍ ✅
+    console.log('\n📊 PASO 3.7: Creando sistema de métricas de uso...\n');
+    await createUserServiceSubscriptionsTable();
+    await createUserServiceMetricsTable();
+    await createUsageHistoryTable();
+    await createServiceFeaturesTable();
+
     console.log('\n🔄 PASO 4: Creando vista multidimensional...\n');
     await createMultidimensionalView();
 
@@ -1189,6 +1492,12 @@ async function setup() {
     await insertAccountCategories();
     await insertDefaultCostCenter();
     await createAdminUser();
+
+    await insertDefaultServiceFeatures();
+  
+    console.log('\n📊 PASO 6: Creando vistas y procedimientos de métricas...\n');
+    await createMetricsViews();
+    await createMetricsProcedures();
 
     console.log('\n✅ SETUP COMPLETADO EXITOSAMENTE');
     console.log('\n🎯 Base de datos unificada lista:');

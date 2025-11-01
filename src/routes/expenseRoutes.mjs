@@ -2,6 +2,7 @@
 // Rutas unificadas para sistema dinámico de egresos
 
 import express from 'express';
+import { trackUsage } from '../middleware/usageMetricsMiddleware.mjs'; // ✅ AGREGAR
 import * as ExpenseTypeController from '../controllers/expenseTypeController.mjs';
 import * as ExpenseDataController from '../controllers/expenseDataController.mjs';
 import * as ExpenseDashboardController from '../controllers/expenseDashboardController.mjs';
@@ -9,7 +10,7 @@ import * as ExpenseDashboardController from '../controllers/expenseDashboardCont
 const router = express.Router();
 
 // ============================================
-// EXPENSE TYPES - Gestión de tipos
+// EXPENSE TYPES - Gestión de tipos (NO TRACKEAR - configuración)
 // ============================================
 
 // CRUD de tipos
@@ -33,23 +34,52 @@ router.put('/expense-statuses/:id', ExpenseTypeController.updateStatus);
 router.delete('/expense-statuses/:id', ExpenseTypeController.deleteStatus);
 
 // ============================================
-// EXPENSES DATA - Datos de egresos
+// EXPENSES DATA - Datos de egresos (✅ TRACKEAR AQUÍ)
 // ============================================
 
-// CRUD de egresos (rutas específicas primero, luego las genéricas con parámetros)
+// GET: No trackear (solo lectura)
 router.get('/expenses', ExpenseDataController.getAllExpenses);
 router.get('/expenses/stats', ExpenseDataController.getExpenseStats);
-router.post('/expenses/bulk', ExpenseDataController.bulkCreateExpenses);
 router.get('/expenses/:id', ExpenseDataController.getExpenseById);
-router.post('/expenses', ExpenseDataController.createExpense);
-router.put('/expenses/:id', ExpenseDataController.updateExpense);
+
+// ✅ POST BULK: TRACKEAR múltiples transacciones (debe ir ANTES de /expenses para evitar conflicto)
+router.post(
+  '/expenses/bulk',
+  trackUsage('cash-flow', 'transactions', { incrementBy: 'dynamic' }),
+  async (req, res, next) => {
+    const originalJson = res.json.bind(res);
+    res.json = function(data) {
+      if (data.success && data.data?.success?.length > 0) {
+        req.actualTransactionsCreated = data.data.success.length;
+      }
+      return originalJson(data);
+    };
+    await ExpenseDataController.bulkCreateExpenses(req, res, next);
+  }
+);
+
+// ✅ POST: TRACKEAR como transacción
+router.post(
+  '/expenses',
+  trackUsage('cash-flow', 'transactions'),
+  ExpenseDataController.createExpense
+);
+
+// ✅ PUT: TRACKEAR como transacción
+router.put(
+  '/expenses/:id',
+  trackUsage('cash-flow', 'transactions'),
+  ExpenseDataController.updateExpense
+);
+
+// DELETE: NO trackear (eliminar no cuenta como nueva transacción)
 router.delete('/expenses/:id', ExpenseDataController.deleteExpense);
 
-// Estadísticas y agrupaciones
+// Estadísticas: NO trackear (solo lectura)
 router.get('/expense-types/:typeId/expenses-by-status', ExpenseDataController.getExpensesByStatus);
 
 // ============================================
-// DASHBOARD - Endpoints para resumen y análisis
+// DASHBOARD - NO TRACKEAR (solo lectura)
 // ============================================
 router.get('/expenses/dashboard/summary', ExpenseDashboardController.getExpenseDashboardSummary);
 router.get('/expenses/dashboard/by-type', ExpenseDashboardController.getExpensesByType);
