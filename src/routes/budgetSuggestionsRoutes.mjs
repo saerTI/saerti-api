@@ -24,6 +24,8 @@ import {
 } from '../services/pdfAnalysisOptimizer.mjs';
 import { getUserAnalysisHistory } from '../utils/budgetAnalysisUtils.mjs';
 
+import { trackUsage } from '../middleware/usageMetricsMiddleware.mjs';
+
 const router = express.Router();
 
 /**
@@ -178,18 +180,13 @@ router.post(
   '/api/budget-analysis/quick',
   authenticate,
   costControlMiddleware,
-  [
-    body('type').notEmpty().withMessage('Tipo de proyecto es requerido'),
-    body('location').notEmpty().withMessage('Ubicación es requerida'),
-    body('area').isFloat({ min: 1 }).withMessage('Área debe ser un número positivo'),
-    body('estimatedBudget').optional().isFloat({ min: 0 }).withMessage('Presupuesto debe ser positivo'),
-    body('description').optional().isLength({ max: 1000 }).withMessage('Descripción muy larga')
-  ],
+  trackUsage('budget-analyzer', 'daily_analyses'),
+  trackUsage('budget-analyzer', 'monthly_analyses'),
+  [/* validaciones */],
   async (req, res, next) => {
     try {
       await budgetController.generateQuickAnalysis(req, res, next);
       
-      // Registrar costo estimado
       if (req.estimatedCost) {
         registerActualCost(req.estimatedCost, req.userDailyKey);
       }
@@ -237,6 +234,8 @@ router.post(
   '/api/budget-analysis/pdf/validate',
   authenticate,
   costControlMiddleware,
+  trackUsage('budget-analyzer', 'daily_analyses'),
+  trackUsage('budget-analyzer', 'monthly_analyses'),
   uploadPdfForAnalysis,
   handlePdfUploadErrors,
   validatePdfPresence,

@@ -1,7 +1,7 @@
 // src/controllers/usageStatsController.mjs
-
 import { pool } from '../config/database.mjs';
 
+// LÍMITES CORRECTOS: Free tier = 3 diarios, 10 mensuales
 const SERVICE_CONFIGS = {
   'budget-analyzer': {
     metrics: {
@@ -9,9 +9,21 @@ const SERVICE_CONFIGS = {
       monthly_analyses: { reset: 'monthly' }
     },
     tiers: {
-      free: { daily_analyses: 10, monthly_analyses: 50 },
-      pro: { daily_analyses: 50, monthly_analyses: 500 },
-      enterprise: { daily_analyses: -1, monthly_analyses: -1 }
+      free: { 
+        daily_analyses: 3,        // ✅ CORRECTO
+        monthly_analyses: 10,     // ✅ CORRECTO
+        features: ['basic_analysis', 'pdf_upload']
+      },
+      pro: { 
+        daily_analyses: 10, 
+        monthly_analyses: 100,
+        features: ['basic_analysis', 'pdf_upload', 'comparisons', 'advanced_insights']
+      },
+      enterprise: { 
+        daily_analyses: -1,       // Ilimitado
+        monthly_analyses: -1,     // Ilimitado
+        features: ['all']
+      }
     }
   },
   'cash-flow': {
@@ -22,10 +34,34 @@ const SERVICE_CONFIGS = {
       advanced_projections: { reset: 'monthly' }
     },
     tiers: {
-      free: { transactions: 100, organizations: 1, export_reports: 5, advanced_projections: 3 },
-      starter: { transactions: 500, organizations: 3, export_reports: 50, advanced_projections: 20 },
-      professional: { transactions: 2000, organizations: 10, export_reports: -1, advanced_projections: 100 },
-      enterprise: { transactions: -1, organizations: -1, export_reports: -1, advanced_projections: -1 }
+      free: { 
+        transactions: 100, 
+        organizations: 1, 
+        export_reports: 5, 
+        advanced_projections: 3,
+        features: ['basic_cashflow', 'manual_entry', 'basic_reports']
+      },
+      starter: { 
+        transactions: 500, 
+        organizations: 3, 
+        export_reports: 50, 
+        advanced_projections: 20,
+        features: ['basic_cashflow', 'manual_entry', 'basic_reports', 'excel_export']
+      },
+      professional: { 
+        transactions: 2000, 
+        organizations: 10, 
+        export_reports: -1, 
+        advanced_projections: 100,
+        features: ['all_cashflow']
+      },
+      enterprise: { 
+        transactions: -1, 
+        organizations: -1, 
+        export_reports: -1, 
+        advanced_projections: -1,
+        features: ['all']
+      }
     }
   }
 };
@@ -38,9 +74,11 @@ async function getUserTier(userId, service) {
        ORDER BY created_at DESC LIMIT 1`,
       [userId, service]
     );
-    return rows.length > 0 ? rows[0].tier : 'free';
+    const tier = rows.length > 0 ? rows[0].tier : 'free';
+    console.log(`📊 User ${userId} - ${service}: tier=${tier}`);
+    return tier;
   } catch (error) {
-    console.error('Error obteniendo tier:', error);
+    console.error('❌ Error obteniendo tier:', error);
     return 'free';
   }
 }
@@ -64,7 +102,7 @@ async function getUserUsage(userId, service, period) {
 
     return usage;
   } catch (error) {
-    console.error('Error obteniendo uso:', error);
+    console.error('❌ Error obteniendo uso:', error);
     return {};
   }
 }
@@ -111,6 +149,7 @@ function getNextResetDate(resetType) {
 
 /**
  * Obtener estadísticas de uso del usuario
+ * GET /api/usage/stats?service=budget-analyzer
  * GET /api/usage/stats?service=cash-flow
  */
 export const getUserUsageStats = async (req, res) => {
@@ -128,9 +167,12 @@ export const getUserUsageStats = async (req, res) => {
     if (!service || !SERVICE_CONFIGS[service]) {
       return res.status(400).json({
         success: false,
-        message: 'Servicio inválido o no especificado'
+        message: 'Servicio inválido o no especificado',
+        valid_services: Object.keys(SERVICE_CONFIGS)
       });
     }
+
+    console.log(`📊 ==> Stats request: user=${userId}, service=${service}`);
 
     const config = SERVICE_CONFIGS[service];
     const userTier = await getUserTier(userId, service);
@@ -139,6 +181,7 @@ export const getUserUsageStats = async (req, res) => {
     const stats = {
       service,
       tier: userTier,
+      features: tierLimits.features || [],
       metrics: {}
     };
 
@@ -157,7 +200,11 @@ export const getUserUsageStats = async (req, res) => {
         reset_type: metricConfig.reset,
         next_reset: getNextResetDate(metricConfig.reset)
       };
+
+      console.log(`   └─ ${metricName}: ${current}/${isUnlimited ? '∞' : limit}`);
     }
+
+    console.log(`✅ Stats enviadas (tier: ${userTier})`);
 
     res.json({
       success: true,
@@ -166,7 +213,7 @@ export const getUserUsageStats = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
+    console.error('❌ Error obteniendo estadísticas:', error);
     res.status(500).json({
       success: false,
       message: 'Error obteniendo estadísticas de uso',

@@ -23,23 +23,23 @@ const SERVICE_CONFIGS = {
     name: 'Budget Analyzer',
     metrics: {
       daily_analyses: {
-        limit: 10,        // Análisis por día (free tier)
+        limit: 3,        // Análisis por día (free tier)
         reset: 'daily'
       },
       monthly_analyses: {
-        limit: 50,        // Análisis por mes (free tier)
+        limit: 10,        // Análisis por mes (free tier)
         reset: 'monthly'
       }
     },
     tiers: {
       free: {
-        daily_analyses: 10,
-        monthly_analyses: 50,
+        daily_analyses: 3,
+        monthly_analyses: 10,
         features: ['basic_analysis', 'pdf_upload']
       },
       pro: {
-        daily_analyses: 50,
-        monthly_analyses: 500,
+        daily_analyses: 10,
+        monthly_analyses: 100,
         features: ['basic_analysis', 'pdf_upload', 'comparisons', 'advanced_insights']
       },
       enterprise: {
